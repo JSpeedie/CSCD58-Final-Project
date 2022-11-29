@@ -197,7 +197,6 @@ int do_retr(int controlfd, int datafd, char *input){
 	bzero(sendline, (int)sizeof(sendline));
 	bzero(str, (int)sizeof(str));
 
-	
 	if(get_filename(input, filename) > 0){
 		sprintf(str, "cat %s", filename);
 
@@ -222,11 +221,11 @@ int do_retr(int controlfd, int datafd, char *input){
         return -1;
     }
 
-    while (fgets(sendline, MAXLINE, in) != NULL) {
-        write(datafd, sendline, strlen(sendline));
-        //printf("%s", sendline);
-        bzero(sendline, (int)sizeof(sendline));
-    }
+	size_t nmem_read = 0;
+	while (0 != (nmem_read = fread(sendline, 1, sizeof(sendline), in)) ) {
+		write(datafd, sendline, nmem_read);
+		bzero(sendline, (size_t)sizeof(sendline));
+	}
 
     sprintf(sendline, "200 Command OK");
     write(controlfd, sendline, strlen(sendline));
@@ -285,16 +284,16 @@ int main(int argc, char **argv){
 		printf("Usage: ./ftpserver <listen-port>\n");
 		exit(-1);
 	}
-	
+
 	sscanf(argv[1], "%d", &port);
-	
+
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	bzero(&servaddr, sizeof(servaddr));
 	servaddr.sin_family      = AF_INET;
 	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	servaddr.sin_port        = htons(port);
-	
+
 	bind(listenfd, (struct sockaddr*) &servaddr, sizeof(servaddr));
 
 	listen(listenfd, LISTENQ);
@@ -308,10 +307,7 @@ int main(int argc, char **argv){
 
 			int datafd, code, x = 0, client_port = 0;
 			char recvline[MAXLINE+1];
-			char client_ip[50], command[1024];
-
-
-			
+			char client_ip[50], command[4096];
 
 			while(1){
 				bzero(recvline, (int)sizeof(recvline));
@@ -355,11 +351,9 @@ int main(int argc, char **argv){
                     write(connfd, reply, strlen(reply));
                     close(datafd);
                     continue;
-                }               
+                }
 
     			close(datafd);
-    			
-
 			}
     		printf("Exiting Child Process...\n");
     		close(connfd);
