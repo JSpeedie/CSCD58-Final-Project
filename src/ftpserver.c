@@ -136,8 +136,45 @@ int get_command(char *command){
     else if(strcmp(str, "STOR") == 0){value = 3;}
     else if(strcmp(str, "SKIP") == 0){value = 4;}
     else if(strcmp(str, "ABOR") == 0){value = 5;}
+    else if(strcmp(str, "DHKE") == 0){value = 6;}
 
     return value;
+}
+
+/* Computes a^b mod c */
+int sq_mp(long long int a, long long int b, long long int c) {
+    long long int r;
+    long long int y = 1;
+
+    while (m > 0) {
+        r = m % 2;
+
+        if (r == 1) {
+            y = (y * a) % n;
+        }
+
+        a = a * a % n;
+        m = m / 2;
+    }
+
+    return y;
+}
+
+long long int do_dh(int controlfd, int datafd) {
+    long long int dh_p = 23;
+    long long int dh_g = 5;
+    long long int dh_b, dh_ka, dh_kb, dh_k;
+
+    dh_b = (rand() % (p - 2)) + 2;
+    dh_kb = sq_mp(dh_g, dh_b, dh_p);
+
+    read(datafd, (char *)&dh_ka, sizeof(dh_ka));
+
+    write(datafd, (char *)&dh_kb, sizeof(dh_kb));
+
+    dh_k = sq_mp(dh_ka, dh_b, dh_p);
+
+    return dh_ka;
 }
 
 int do_list(int controlfd, int datafd, char *input){
@@ -351,6 +388,10 @@ int main(int argc, char **argv){
                     write(connfd, reply, strlen(reply));
                     close(datafd);
                     continue;
+                }}else if(code == 6){
+                    long long int dh_k;
+                    dh_k = do_dh(controlfd);
+                    printf("Key: %lld\n", dh_k);
                 }
 
     			close(datafd);
