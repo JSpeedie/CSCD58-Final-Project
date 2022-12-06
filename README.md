@@ -86,8 +86,11 @@ later.
 ## Dawson Brown (browndaw, 1005392932)
 Dawson worked on the encryption part of the project.
 
-## Jacky Fong (?, ?)
-Jacky worked on the parallelization part of the project.
+## Jacky Fong (fongkwan, 991686118)
+Jacky worked on the parallelization part of the project. Explored several different
+I/O event notification facilities (e.g. POSIX select and poll) and third party libraries
+(e.g. libuv and libev) for implementing parallelized file transfers. Evaluated the
+different options to determine what works best with the chosen codebase.
 
 
 # How to run and test
