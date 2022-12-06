@@ -1,9 +1,9 @@
 #Makefile
 
 make: ftpclient.c ftpserver.c
-	gcc -pthread -g -Wall ftpclient.c -o ftpclient
+	gcc -pthread -g -Wall ftpclient.c ftputil.c -o ftpclient
 	mv ftpclient ../bin
-	gcc -g -Wall ftpserver.c -o ftpserver
+	gcc -g -Wall ftpserver.c ftputil.c -o ftpserver
 	mv ftpserver ../bin
 
 clean:

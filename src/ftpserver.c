@@ -19,14 +19,7 @@
 #include	<sys/types.h>
 #include 	<dirent.h>
 
-
-
-#define 	MAXLINE 	4096
-#define		LISTENQ		1024
-#define		TRUE		1
-#define		FALSE		0
-
-
+#include        "ftputil.h"
 
 //function trims leading and trailing whitespaces
 void trim(char *str)
@@ -74,27 +67,27 @@ int get_client_ip_port(char *str, char *client_ip, int *client_port){
 
 int setup_data_connection(int *fd, char *client_ip, int client_port, int server_port){
 	
-	struct sockaddr_in cliaddr, tempaddr;
+    struct sockaddr_in cliaddr, tempaddr;
 
-	if ( (*fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+    if ( (*fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
     	perror("socket error");
     	return -1;
     }
 
-	//bind port for data connection to be server port - 1 by using a temporary struct sockaddr_in
-	bzero(&tempaddr, sizeof(tempaddr));
+    //bind port for data connection to be server port - 1 by using a temporary struct sockaddr_in
+    bzero(&tempaddr, sizeof(tempaddr));
     tempaddr.sin_family = AF_INET;
     tempaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     tempaddr.sin_port   = htons(server_port-1);
 
     while((bind(*fd, (struct sockaddr*) &tempaddr, sizeof(tempaddr))) < 0){
     	//perror("bind error");
-    	server_port--;
+        server_port--;
     	tempaddr.sin_port   = htons(server_port);
     }
 
 
-	//initiate data connection fd with client ip and client port             
+    //initiate data connection fd with client ip and client port             
     bzero(&cliaddr, sizeof(cliaddr));
     cliaddr.sin_family = AF_INET;
     cliaddr.sin_port   = htons(client_port);
@@ -191,8 +184,8 @@ int do_list(int controlfd, int datafd, char *input){
     return 1;
 }
 
-int do_retr(int controlfd, int datafd, char *input){
-	char filename[1024], sendline[MAXLINE+1], str[MAXLINE+1];
+int do_retr(int controlfd, int *datafd, char *input){
+	char filename[1024], sendline[MAXLINE], str[MAXLINE];
 	bzero(filename, (int)sizeof(filename));
 	bzero(sendline, (int)sizeof(sendline));
 	bzero(str, (int)sizeof(str));
@@ -222,9 +215,11 @@ int do_retr(int controlfd, int datafd, char *input){
     }
 
 	size_t nmem_read = 0;
+        int i = 0;
 	while (0 != (nmem_read = fread(sendline, 1, sizeof(sendline), in)) ) {
-		write(datafd, sendline, nmem_read);
+		write(datafd[i], sendline, nmem_read); // TODO: Parallelize
 		bzero(sendline, (size_t)sizeof(sendline));
+                i = (i + 1 ) %  NDATAFD;
 	}
 
     sprintf(sendline, "200 Command OK");
@@ -234,7 +229,7 @@ int do_retr(int controlfd, int datafd, char *input){
 }
 
 int do_stor(int controlfd, int datafd, char *input){
-	char filename[1024], sendline[MAXLINE+1], recvline[MAXLINE+1], str[MAXLINE+1], temp1[1024];
+	char filename[1024], sendline[MAXLINE+1], recvline[MAXLINE+1], str[MAXLINE+1], temp1[1028];
 	bzero(filename, (int)sizeof(filename));
 	bzero(sendline, (int)sizeof(sendline));
 	bzero(recvline, (int)sizeof(recvline));
@@ -299,67 +294,72 @@ int main(int argc, char **argv){
 	listen(listenfd, LISTENQ);
 
 	while(1){
-		connfd = accept(listenfd, (struct sockaddr*)NULL, NULL);
-		printf("New Client Detected...\n");
-		//child process---------------------------------------------------------------
-		if((pid = fork()) == 0){
-			close(listenfd);
+            connfd = accept(listenfd, (struct sockaddr*)NULL, NULL);
+            printf("New Client Detected...\n");
+            //child process---------------------------------------------------------------
+            if((pid = fork()) == 0){
+                    close(listenfd);
 
-			int datafd, code, x = 0, client_port = 0;
-			char recvline[MAXLINE+1];
-			char client_ip[50], command[4096];
+                    int datafds[NDATAFD], code, x = 0, client_port = 0;
+                    char recvline[MAXLINE+1];
+                    char client_ip[50], command[4096];
 
-			while(1){
-				bzero(recvline, (int)sizeof(recvline));
-				bzero(command, (int)sizeof(command));
+                    while(1){
+                        bzero(recvline, (int)sizeof(recvline));
+                                bzero(command, (int)sizeof(command));
 
-				//get client's data connection port
-    			if((x = read(connfd, recvline, MAXLINE)) < 0){
-    				break;
-    			}
-    			printf("*****************\n%s \n", recvline);
-                if(strcmp(recvline, "QUIT") == 0){
-                    printf("Quitting...\n");
-                    char goodbye[1024];
-                    sprintf(goodbye,"221 Goodbye");
-                    write(connfd, goodbye, strlen(goodbye));
-                    close(connfd);
-                    break;
-                }
-    			get_client_ip_port(recvline, client_ip, &client_port);
+                                //get client's data connection port
+                        if((x = read(connfd, recvline, MAXLINE)) < 0){
+                                break;
+                        }
+                        printf("*****************\n%s \n", recvline);
 
-    			if((setup_data_connection(&datafd, client_ip, client_port, port)) < 0){
-    				break;
-    			}
+                        if(strcmp(recvline, "QUIT") == 0){
+                            printf("Quitting...\n");
+                            char goodbye[1024];
+                            sprintf(goodbye,"221 Goodbye");
+                            write(connfd, goodbye, strlen(goodbye));
+                            close(connfd);
+                            break;
+                        }
+                        get_client_ip_port(recvline, client_ip, &client_port);
+ 
+                        int i;
+                        while (i < NDATAFD) {
+                            if((setup_data_connection(datafds + i, client_ip, client_port, port)) < 0){
+                                    break;
+                            }
+                            i++;
+                        }
 
-    			if((x = read(connfd, command, MAXLINE)) < 0){
-    				break;
-    			}
+                        if((x = read(connfd, command, MAXLINE)) < 0){
+                                break;
+                        }
 
-    			printf("-----------------\n%s \n", command);
+                        printf("-----------------\n%s \n", command);
+                        code = get_command(command);
 
-    			code = get_command(command);
-    			if(code == 1){
-    				do_list(connfd, datafd, command);
-    			}else if(code == 2){
-    				do_retr(connfd, datafd, command);
-    			}else if(code == 3){
-    				do_stor(connfd, datafd, command);
-    			}else if(code == 4){
-                    char reply[1024];
-                    sprintf(reply, "550 Filename Does Not Exist");
-                    write(connfd, reply, strlen(reply));
-                    close(datafd);
-                    continue;
-                }
-
-    			close(datafd);
-			}
-    		printf("Exiting Child Process...\n");
-    		close(connfd);
-    		_exit(1);
-		}
-		//end child process-------------------------------------------------------------
-		close(connfd);
-	}
+                        if(code == 1){
+                                do_list(connfd, datafds[0], command);
+                        }else if(code == 2){
+                                do_retr(connfd, datafds, command);
+                        }else if(code == 3){
+                                do_stor(connfd, datafds[0], command);
+                        }else if(code == 4){
+                            char reply[1024];
+                            sprintf(reply, "550 Filename Does Not Exist");
+                            write(connfd, reply, strlen(reply));
+                            close_data_connections(datafds);
+                            continue;
+                        }
+                        i = 0;
+                        close_data_connections(datafds);
+                    }
+                printf("Exiting Child Process...\n");
+                close(connfd);
+                _exit(1);
+            }
+                //end child process-------------------------------------------------------------
+                close(connfd);
+    }
 }
