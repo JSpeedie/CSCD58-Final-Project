@@ -357,14 +357,13 @@ int do_get(int controlfd, int datafd, char *input){
     fclose(fp);
 
 	/* CSCD58 addition */
-	int uncompoutputfilepathlen = strlen(temp1) + 4 + 1;
+	int uncompoutputfilepathlen = strlen(temp1) + 1;
 	char uncompoutputfilepath[uncompoutputfilepathlen];
 	bzero(uncompoutputfilepath, uncompoutputfilepathlen);
 	char * pecsuffix = ".pec";
 	int pecsuffix_len = strlen(pecsuffix);
 	/* - pecsuffix_len to get rid of the trailing .pec */
 	strncpy(uncompoutputfilepath, temp1, strlen(temp1) - pecsuffix_len);
-	strncat(uncompoutputfilepath, "-out", 4);
 
 	if (0 != uncomp_file(temp1, uncompoutputfilepath)) {
 		fprintf(stderr, "ERROR: could not uncompress file!\n");
