@@ -18,6 +18,8 @@
 #include	<sys/stat.h>
 #include	<sys/types.h>
 #include 	<dirent.h>
+#include    "aes.h"
+#include    "enc.h"
 
 
 
@@ -141,40 +143,29 @@ int get_command(char *command){
     return value;
 }
 
-/* Computes a^b mod c */
-int sq_mp(long long int a, long long int b, long long int c) {
-    long long int r;
-    long long int y = 1;
+int do_dh(int controlfd, int datafd, uint32_t key[4]) {
+    uint64_t dh_p = 1;
+    dh_p = (dh_p << 32) - 99;
+    uint64_t dh_g = 5;
+    uint64_t dh_b, dh_ka, dh_kb, dh_k;
+    fd_set fds;
+    FD_ZERO(&fds);
 
-    while (m > 0) {
-        r = m % 2;
+    for (int i = 0; i < 4; i++) {
+        dh_b = (rand() % (dh_p - 2)) + 2;
+        dh_kb = sq_mp(dh_g, dh_b, dh_p);
+        FD_SET(datafd, &fds);
 
-        if (r == 1) {
-            y = (y * a) % n;
-        }
+        select(datafd + 1, &fds, NULL, NULL, NULL);
+        read(datafd, (char *)&dh_ka, sizeof(dh_ka));
+        
+        write(datafd, (char *)&dh_kb, sizeof(dh_kb));
 
-        a = a * a % n;
-        m = m / 2;
+        dh_k = sq_mp(dh_ka, dh_b, dh_p);
+        key[i] = dh_k & 0xffffffff;
     }
-
-    return y;
-}
-
-long long int do_dh(int controlfd, int datafd) {
-    long long int dh_p = 23;
-    long long int dh_g = 5;
-    long long int dh_b, dh_ka, dh_kb, dh_k;
-
-    dh_b = (rand() % (p - 2)) + 2;
-    dh_kb = sq_mp(dh_g, dh_b, dh_p);
-
-    read(datafd, (char *)&dh_ka, sizeof(dh_ka));
-
-    write(datafd, (char *)&dh_kb, sizeof(dh_kb));
-
-    dh_k = sq_mp(dh_ka, dh_b, dh_p);
-
-    return dh_ka;
+    
+    return 0;
 }
 
 int do_list(int controlfd, int datafd, char *input){
@@ -229,10 +220,20 @@ int do_list(int controlfd, int datafd, char *input){
 }
 
 int do_retr(int controlfd, int datafd, char *input){
-	char filename[1024], sendline[MAXLINE+1], str[MAXLINE+1];
+	char filename[1024], sendline[MAXLINE+1], str[MAXLINE+1], strenc[MAXLINE+6];
 	bzero(filename, (int)sizeof(filename));
 	bzero(sendline, (int)sizeof(sendline));
 	bzero(str, (int)sizeof(str));
+	bzero(strenc, (int)sizeof(str));
+	
+	printf("Start DH exchange\n");
+        uint32_t key[4];
+        do_dh(controlfd, datafd, key);
+        printf("Key: ");
+        for (int i = 0; i < 4; i++) {
+            printf("%x, ", key[i]);
+        }
+        printf("\n");
 
 	if(get_filename(input, filename) > 0){
 		sprintf(str, "cat %s", filename);
@@ -248,11 +249,16 @@ int do_retr(int controlfd, int datafd, char *input){
     	write(controlfd, sendline, strlen(sendline));
 		return -1;
 	}
+	
+	sprintf(strenc, "%s-encs", filename);
+	enc_file(str, strenc, key);
+	sprintf(strenc, "cat %s-encs", filename);
+	dec_file(strenc, "decrypted", key);
 
 	FILE *in;
     extern FILE *popen();
 
-    if (!(in = popen(str, "r"))) {
+    if (!(in = popen(strenc, "r"))) {
     	sprintf(sendline, "451 Requested action aborted. Local error in processing\n");
     	write(controlfd, sendline, strlen(sendline));
         return -1;
@@ -321,6 +327,9 @@ int main(int argc, char **argv){
 		printf("Usage: ./ftpserver <listen-port>\n");
 		exit(-1);
 	}
+	
+	srand(time(NULL));
+	init_enc();
 
 	sscanf(argv[1], "%d", &port);
 
@@ -388,10 +397,14 @@ int main(int argc, char **argv){
                     write(connfd, reply, strlen(reply));
                     close(datafd);
                     continue;
-                }}else if(code == 6){
-                    long long int dh_k;
-                    dh_k = do_dh(controlfd);
-                    printf("Key: %lld\n", dh_k);
+                }else if(code == 6){
+                    uint32_t key[4];
+                    do_dh(connfd, datafd, key);
+                    printf("Key: ");
+                    for (int i = 0; i < 4; i++) {
+                        printf("%x, ", key[i]);
+                    }
+                    printf("\n");
                 }
 
     			close(datafd);

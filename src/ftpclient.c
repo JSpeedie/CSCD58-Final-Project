@@ -7,6 +7,7 @@
 #include 	<arpa/inet.h>
 #include 	<unistd.h>
 #include 	<stdio.h>
+#include    <stdint.h>
 #include    <ctype.h>
 #include 	<stdlib.h>
 #include 	<netinet/in.h>
@@ -16,6 +17,8 @@
 #include    <sys/select.h>
 #include    <sys/time.h>
 #include    <math.h>
+#include    "aes.h"
+#include    "enc.h"
 
 
 #define 	MAXLINE 4096
@@ -193,44 +196,29 @@ int get_filename(char *input, char *fileptr){
     }
 }
 
-/* Computes a^b mod c */
-int sq_mp(long long int a, long long int b, long long int c) {
-    long long int r;
-    long long int y = 1;
+int do_dh(int controlfd, int datafd, uint32_t key[4]) {
+    uint64_t dh_p = 1;
+    dh_p = (dh_p << 32) - 99;
+    uint64_t dh_g = 5;
+    uint64_t dh_a, dh_ka, dh_kb, dh_k;
+    fd_set fds;
+    FD_ZERO(&fds);
 
-    while (m > 0) {
-        r = m % 2;
+    for (int i = 0; i < 4; i++) {
+        dh_a = (rand() % (dh_p - 2)) + 2;
+        dh_ka = sq_mp(dh_g, dh_a, dh_p);
+        FD_SET(datafd, &fds);
 
-        if (r == 1) {
-            y = (y * a) % n;
-        }
+        write(datafd, (char *)&dh_ka, sizeof(dh_ka));
 
-        a = a * a % n;
-        m = m / 2;
+        select(datafd + 1, &fds, NULL, NULL, NULL);
+        read(datafd, (char *)&dh_kb, sizeof(dh_kb));
+
+        dh_k = sq_mp(dh_kb, dh_a, dh_p);
+        key[i] = dh_k & 0xffffffff;
     }
 
-    return y;
-}
-
-long long int do_dh(int controlfd, int datafd) {
-    char send[1024];
-    sprintf(send, "DHKE");
-    write(controlfd, send, strlen(send));
-
-    long long int dh_p = 23;
-    long long int dh_g = 5;
-    long long int dh_a, dh_ka, dh_kb, dh_k;
-
-    dh_a = (rand() % (p - 2)) + 2;
-    dh_ka = sq_mp(dh_g, dh_a, dh_p);
-
-    write(datafd, (char *)&dh_ka, sizeof(dh_ka));
-
-    read(datafd, (char *)&dh_kb, sizeof(dh_kb));
-
-    dh_k = sq_mp(dh_kb, dh_a, dh_p);
-
-    return dh_k;
+    return 0;
 }
 
 int do_ls(int controlfd, int datafd, char *input){
@@ -305,7 +293,7 @@ int do_ls(int controlfd, int datafd, char *input){
 }
 
 int do_get(int controlfd, int datafd, char *input){
-    char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp, temp1[1024];
+    char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp, temp1[1024], temp2[1024];
     bzero(filename, (int)sizeof(filename));
     bzero(recvline, (int)sizeof(recvline));
     bzero(str, (int)sizeof(str));
@@ -313,8 +301,6 @@ int do_get(int controlfd, int datafd, char *input){
 
     fd_set rdset;
     int maxfdp1, data_finished = FALSE, control_finished = FALSE;
-
-    
 
     if(get_filename(input, filename) < 0){
         printf("No filename Detected...\n");
@@ -332,7 +318,6 @@ int do_get(int controlfd, int datafd, char *input){
     sprintf(temp1, "%s-out", filename);
     bzero(filename, (int)sizeof(filename));
 
-
     FD_ZERO(&rdset);
     FD_SET(controlfd, &rdset);
     FD_SET(datafd, &rdset);
@@ -344,14 +329,25 @@ int do_get(int controlfd, int datafd, char *input){
         maxfdp1 = datafd + 1;
     }
 
+    sprintf(temp2, "%s-encc", temp1);
     
     FILE *fp;
-    if((fp = fopen(temp1, "w")) == NULL){
+    if((fp = fopen(temp2, "w")) == NULL){
         perror("file error");
         return -1;
     }
 
     write(controlfd, str, strlen(str));
+    
+    printf("Start DH exchange\n");
+    uint32_t key[4];
+    do_dh(controlfd, datafd, key);
+    printf("Key: ");
+    for (int i = 0; i < 4; i++) {
+        printf("%x, ", key[i]);
+    }
+    printf("\n");
+    
     while(1){
         if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
         if(data_finished == FALSE){FD_SET(datafd, &rdset);}
@@ -393,6 +389,10 @@ int do_get(int controlfd, int datafd, char *input){
     bzero(recvline, (int)sizeof(recvline));
     bzero(str, (int)sizeof(str));
     fclose(fp);
+    
+    sprintf(temp2, "cat %s-encc", temp1);
+    
+    dec_file(temp2, temp1, key);
     return 1;
 }
 
@@ -500,6 +500,8 @@ int main(int argc, char **argv){
 		printf("Usage: ./ftpclient <server-ip> <server-listen-port>\n");
 		exit(-1);
 	}
+	srand(time(NULL));
+	init_enc();
 
 	//get server port
 	sscanf(argv[2], "%d", &server_port);
@@ -590,11 +592,18 @@ int main(int argc, char **argv){
                 close(datafd);
                 continue;
             }
-        }
         }else if(code == 5){
-            long long int dh_k;
-            dh_k = do_dh(controlfd, datafd);
-            printf("Key: %lld\n", dh_k);
+            char send[1024];
+            sprintf(send, "DHKE");
+            write(controlfd, send, strlen(send));
+                    
+            uint32_t key[4];
+            do_dh(controlfd, datafd, key);
+            printf("Key: ");
+            for (int i = 0; i < 4; i++) {
+                printf("%x, ", key[i]);
+            }
+            printf("\n");
         }
         close(datafd);
     }
