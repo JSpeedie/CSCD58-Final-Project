@@ -269,92 +269,95 @@ int do_ls(int controlfd, int datafd, char *input){
 }
 
 int do_get(int controlfd, int datafd, char *input){
-    char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp, temp1[1024];
-    bzero(filename, (int)sizeof(filename));
-    bzero(recvline, (int)sizeof(recvline));
-    bzero(str, (int)sizeof(str));
-    int n = 0, p = 0;
+	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp, temp1[1024];
+	bzero(filename, (int)sizeof(filename));
+	bzero(recvline, (int)sizeof(recvline));
+	bzero(str, (int)sizeof(str));
+	int n = 0, p = 0;
 
-    fd_set rdset;
-    int maxfdp1, data_finished = FALSE, control_finished = FALSE;
+	fd_set rdset;
+	int maxfdp1, data_finished = FALSE, control_finished = FALSE;
 
-    if(get_filename(input, filename) < 0){
-        printf("No filename Detected...\n");
-        char send[1024];
-        sprintf(send, "SKIP");
-        write(controlfd, send, strlen(send));
-        bzero(send, (int)sizeof(send));
-        read(controlfd, send, 1000);
-        printf("Server Response: %s\n", send);
-        return -1;
-    }else{
-        sprintf(str, "RETR %s", filename);
-    }
-    printf("File: %s\n", filename);
-    sprintf(temp1, "%s.pec", filename);
-    /* sprintf(temp1, "%s-out", filename); */
-    bzero(filename, (int)sizeof(filename));
+	if(get_filename(input, filename) < 0){
+		printf("No filename Detected...\n");
+		char send[1024];
+		sprintf(send, "SKIP");
+		write(controlfd, send, strlen(send));
+		bzero(send, (int)sizeof(send));
+		read(controlfd, send, 1000);
+		printf("Server Response: %s\n", send);
+		return -1;
+	}
+
+	sprintf(str, "RETR %s", filename);
+	printf("File: %s\n", filename);
+
+	/* CSCD58 addition */
+	sprintf(temp1, "%s.pec", filename);
+	/* sprintf(temp1, "%s-out", filename); */
+	/* CSCD58 end of addition */
+
+	bzero(filename, (int)sizeof(filename));
+
+	FD_ZERO(&rdset);
+	FD_SET(controlfd, &rdset);
+	FD_SET(datafd, &rdset);
 
 
-    FD_ZERO(&rdset);
-    FD_SET(controlfd, &rdset);
-    FD_SET(datafd, &rdset);
+	if(controlfd > datafd){
+		maxfdp1 = controlfd + 1;
+	}else{
+		maxfdp1 = datafd + 1;
+	}
 
+	FILE *fp;
+	if((fp = fopen(temp1, "w")) == NULL){
+		perror("file error");
+		return -1;
+	}
 
-    if(controlfd > datafd){
-        maxfdp1 = controlfd + 1;
-    }else{
-        maxfdp1 = datafd + 1;
-    }
+	write(controlfd, str, strlen(str));
+	while(1){
+		if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
+		if(data_finished == FALSE){FD_SET(datafd, &rdset);}
+		select(maxfdp1, &rdset, NULL, NULL, NULL);
 
-    FILE *fp;
-    if((fp = fopen(temp1, "w")) == NULL){
-        perror("file error");
-        return -1;
-    }
+		if(FD_ISSET(controlfd, &rdset)){
+			bzero(recvline, (int)sizeof(recvline));
+			read(controlfd, recvline, MAXLINE);
+			printf("Server Control Response: %s\n", recvline);
+			temp = strtok(recvline, " ");
+			if(atoi(temp) != 200){
+				printf("File Error...\nExiting...\n");
+				break;
+			}
+			control_finished = TRUE;
+			bzero(recvline, (int)sizeof(recvline));
+			FD_CLR(controlfd, &rdset);
+		}
 
-    write(controlfd, str, strlen(str));
-    while(1){
-        if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
-        if(data_finished == FALSE){FD_SET(datafd, &rdset);}
-        select(maxfdp1, &rdset, NULL, NULL, NULL);
+		if(FD_ISSET(datafd, &rdset)){
+			//printf("Server Data Response:\n");
+			bzero(recvline, (int)sizeof(recvline));
+			while((n = read(datafd, recvline, MAXLINE)) > 0){
+				fseek(fp, p, SEEK_SET);
+				fwrite(recvline, 1, n, fp);
+				p = p + n;
+				//printf("%s", recvline);
+				bzero(recvline, (int)sizeof(recvline));
+			}
+			data_finished = TRUE;
+			FD_CLR(datafd, &rdset);
+		}
+		if((control_finished == TRUE) && (data_finished == TRUE)){
+			break;
+		}
 
-        if(FD_ISSET(controlfd, &rdset)){
-            bzero(recvline, (int)sizeof(recvline));
-            read(controlfd, recvline, MAXLINE);
-            printf("Server Control Response: %s\n", recvline);
-            temp = strtok(recvline, " ");
-            if(atoi(temp) != 200){
-                printf("File Error...\nExiting...\n");
-                break;
-            }
-            control_finished = TRUE;
-            bzero(recvline, (int)sizeof(recvline));
-            FD_CLR(controlfd, &rdset);
-        }
-
-        if(FD_ISSET(datafd, &rdset)){
-            //printf("Server Data Response:\n");
-            bzero(recvline, (int)sizeof(recvline));
-            while((n = read(datafd, recvline, MAXLINE)) > 0){
-                fseek(fp, p, SEEK_SET);
-                fwrite(recvline, 1, n, fp);
-                p = p + n;
-                //printf("%s", recvline); 
-                bzero(recvline, (int)sizeof(recvline)); 
-            }
-            data_finished = TRUE;
-            FD_CLR(datafd, &rdset);
-        }
-        if((control_finished == TRUE) && (data_finished == TRUE)){
-            break;
-        }
-
-    }
-    bzero(filename, (int)sizeof(filename));
-    bzero(recvline, (int)sizeof(recvline));
-    bzero(str, (int)sizeof(str));
-    fclose(fp);
+	}
+	bzero(filename, (int)sizeof(filename));
+	bzero(recvline, (int)sizeof(recvline));
+	bzero(str, (int)sizeof(str));
+	fclose(fp);
 
 	/* CSCD58 addition */
 	int uncompoutputfilepathlen = strlen(temp1) + 1;
@@ -373,96 +376,113 @@ int do_get(int controlfd, int datafd, char *input){
 	}
 	/* CSCD58 end of addition */
 
-    return 1;
+	return 1;
 }
 
 int do_put(int controlfd, int datafd, char *input){
-    char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], sendline[MAXLINE+1], *temp, temp1[1024];
-    bzero(filename, (int)sizeof(filename));
-    bzero(recvline, (int)sizeof(recvline));
-    bzero(str, (int)sizeof(str));
-    //int n = 0, p = 0;
+	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], sendline[MAXLINE+1], *temp, temp1[1024];
+	bzero(filename, (int)sizeof(filename));
+	bzero(recvline, (int)sizeof(recvline));
+	bzero(str, (int)sizeof(str));
+	//int n = 0, p = 0;
 
-    fd_set wrset, rdset;
-    int maxfdp1, data_finished = FALSE, control_finished = FALSE;
+	fd_set wrset, rdset;
+	int maxfdp1, data_finished = FALSE, control_finished = FALSE;
 
-    if(get_filename(input, filename) < 0){
-        printf("No filename Detected...\n");
-        char send[1024];
-        sprintf(send, "SKIP");
-        write(controlfd, send, strlen(send));
-        bzero(send, (int)sizeof(send));
-        read(controlfd, send, 1000);
-        printf("Server Control Response: %s\n", send);
-        return -1;
-    }else{
-        sprintf(str, "STOR %s", filename);
-    }
+	if(get_filename(input, filename) < 0){
+		printf("No filename Detected...\n");
+		char send[1024];
+		sprintf(send, "SKIP");
+		write(controlfd, send, strlen(send));
+		bzero(send, (int)sizeof(send));
+		read(controlfd, send, 1000);
+		printf("Server Control Response: %s\n", send);
+		return -1;
+	}
 
-    sprintf(temp1, "cat %s", filename);
-    bzero(filename, (int)sizeof(filename));
+	sprintf(str, "STOR %s", filename);
+	/* CSCD58 addition */
+	int compoutputfilepathlen = strlen(filename) + 4 + 1;
+	char compoutputfilepath[compoutputfilepathlen];
+	bzero(compoutputfilepath, compoutputfilepathlen);
+	strncpy(&compoutputfilepath[0], filename, strlen(filename));
+	strncat(&compoutputfilepath[0], ".pec", 4);
 
+	if (0 != comp_file(filename, compoutputfilepath)) {
+		fprintf(stderr, "ERROR: could not compress file!\n");
+	}
+	sprintf(temp1, "cat %s", compoutputfilepath);
+	/* sprintf(temp1, "cat %s", filename); */
+	/* CSCD58 end of addition */
 
-    FD_ZERO(&wrset);
-    FD_ZERO(&rdset);
-    FD_SET(controlfd, &rdset);
-    FD_SET(datafd, &wrset);
+	bzero(filename, (int)sizeof(filename));
 
-
-    if(controlfd > datafd){
-        maxfdp1 = controlfd + 1;
-    }else{
-        maxfdp1 = datafd + 1;
-    }
-
-
-    FILE *in;
-    extern FILE *popen();
-
-    if (!(in = popen(temp1, "r"))) {
-        printf("Cannot Run Command\nExiting...\n");
-        return -1;
-    }
+	FD_ZERO(&wrset);
+	FD_ZERO(&rdset);
+	FD_SET(controlfd, &rdset);
+	FD_SET(datafd, &wrset);
 
 
-    write(controlfd, str, strlen(str));
-    while(1){
-        if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
-        if(data_finished == FALSE){FD_SET(datafd, &wrset);}
-        select(maxfdp1, &rdset, &wrset, NULL, NULL);
+	if(controlfd > datafd){
+		maxfdp1 = controlfd + 1;
+	}else{
+		maxfdp1 = datafd + 1;
+	}
 
-        if(FD_ISSET(controlfd, &rdset)){
-            bzero(recvline, (int)sizeof(recvline));
-            read(controlfd, recvline, MAXLINE);
-            printf("Server Control Response: %s\n", recvline);
-            temp = strtok(recvline, " ");
-            if(atoi(temp) != 200){
-                printf("File Error...\nExiting...\n");
-                break;
-            }
-            control_finished = TRUE;
-            bzero(recvline, (int)sizeof(recvline));
-            FD_CLR(controlfd, &rdset);
-        }
 
-        if(FD_ISSET(datafd, &wrset)){
-            bzero(sendline, (int)sizeof(sendline));
-            //printf("Server Data Response:\n");
-            while (fgets(sendline, MAXLINE, in) != NULL) {
-                write(datafd, sendline, strlen(sendline));
-                //printf("%s", sendline);
-                bzero(sendline, (int)sizeof(sendline));
-            }
+	FILE *in;
+	extern FILE *popen();
 
-            data_finished = TRUE;
-            FD_CLR(datafd, &wrset);
-            close(datafd);
-        }
-        if((control_finished == TRUE) && (data_finished == TRUE)){
-            break;
-        }
-    }
-    return 1;
+	if (!(in = popen(temp1, "r"))) {
+		printf("Cannot Run Command\nExiting...\n");
+		return -1;
+	}
+
+
+	write(controlfd, str, strlen(str));
+	while(1){
+		if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
+		if(data_finished == FALSE){FD_SET(datafd, &wrset);}
+		select(maxfdp1, &rdset, &wrset, NULL, NULL);
+
+		if(FD_ISSET(controlfd, &rdset)){
+			bzero(recvline, (int)sizeof(recvline));
+			read(controlfd, recvline, MAXLINE);
+			printf("Server Control Response: %s\n", recvline);
+			temp = strtok(recvline, " ");
+			if(atoi(temp) != 200){
+				printf("File Error...\nExiting...\n");
+				break;
+			}
+			control_finished = TRUE;
+			bzero(recvline, (int)sizeof(recvline));
+			FD_CLR(controlfd, &rdset);
+		}
+
+		if(FD_ISSET(datafd, &wrset)){
+			bzero(sendline, (int)sizeof(sendline));
+			/* CSCD58 addition */
+			size_t nmem_read = 0;
+			while (0 != (nmem_read = fread(sendline, 1, sizeof(sendline), in)) ) {
+				write(datafd, sendline, nmem_read);
+				bzero(sendline, (size_t)sizeof(sendline));
+			}
+			/* CSCD58 end of addition */
+
+			data_finished = TRUE;
+			FD_CLR(datafd, &wrset);
+			close(datafd);
+		}
+		if((control_finished == TRUE) && (data_finished == TRUE)){
+			break;
+		}
+	}
+	/* CSCD58 addition */
+	if (0 != remove(compoutputfilepath)) {
+		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
+	}
+	/* CSCD58 end of addition */
+	return 1;
 }
 
 

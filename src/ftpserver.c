@@ -203,13 +203,13 @@ int do_retr(int controlfd, int datafd, char *input){
 
 		if((access(filename, F_OK)) != 0){
 			sprintf(sendline, "550 No Such File or Directory\n");
-    		write(controlfd, sendline, strlen(sendline));
-    		return -1;
+			write(controlfd, sendline, strlen(sendline));
+			return -1;
 		}
 	}else{
 		printf("Filename Not Detected\n");
 		sprintf(sendline, "450 Requested file action not taken.\nFilename Not Detected\n");
-    	write(controlfd, sendline, strlen(sendline));
+		write(controlfd, sendline, strlen(sendline));
 		return -1;
 	}
 
@@ -227,29 +227,31 @@ int do_retr(int controlfd, int datafd, char *input){
 	/* CSCD58 end of addition */
 
 	FILE *in;
-    extern FILE *popen();
+	extern FILE *popen();
 
-    if (!(in = popen(str, "r"))) {
-    	sprintf(sendline, "451 Requested action aborted. Local error in processing\n");
-    	write(controlfd, sendline, strlen(sendline));
-        return -1;
-    }
+	if (!(in = popen(str, "r"))) {
+		sprintf(sendline, "451 Requested action aborted. Local error in processing\n");
+		write(controlfd, sendline, strlen(sendline));
+		return -1;
+	}
 
+	/* CSCD58 addition */
 	size_t nmem_read = 0;
 	while (0 != (nmem_read = fread(sendline, 1, sizeof(sendline), in)) ) {
 		write(datafd, sendline, nmem_read);
 		bzero(sendline, (size_t)sizeof(sendline));
 	}
+	/* CSCD58 end of addition */
 
-    sprintf(sendline, "200 Command OK");
-    write(controlfd, sendline, strlen(sendline));
-    pclose(in);
+	sprintf(sendline, "200 Command OK");
+	write(controlfd, sendline, strlen(sendline));
+	pclose(in);
 	/* CSCD58 addition */
 	if (0 != remove(compoutputfilepath)) {
 		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
 	}
 	/* CSCD58 end of addition */
-    return 1;
+	return 1;
 }
 
 int do_stor(int controlfd, int datafd, char *input){
@@ -262,34 +264,55 @@ int do_stor(int controlfd, int datafd, char *input){
 	int n = 0, p = 0;
 
 	if(get_filename(input, filename) > 0){
-		sprintf(str, "%s-out", filename);
+		sprintf(str, "%s", filename);
 	}else{
 		printf("Filename Not Detected\n");
 		sprintf(sendline, "450 Requested file action not taken.\n");
-    	write(controlfd, sendline, strlen(sendline));
+		write(controlfd, sendline, strlen(sendline));
 		return -1;
 	}
 
-	sprintf(temp1, "%s-out", filename);
+	/* CSCD58 addition */
+	sprintf(temp1, "%s.pec", filename);
+	/* sprintf(temp1, "%s-out", filename); */
+	/* CSCD58 end of addition */
+
 	FILE *fp;
-    if((fp = fopen(temp1, "w")) == NULL){
-        perror("file error");
-        return -1;
-    }
+	if((fp = fopen(temp1, "w")) == NULL){
+		perror("file error");
+		return -1;
+	}
 
+	while((n = read(datafd, recvline, MAXLINE)) > 0){
+		fseek(fp, p, SEEK_SET);
+		fwrite(recvline, 1, n, fp);
+		p = p + n;
+		//printf("%s", recvline); 
+		bzero(recvline, (int)sizeof(recvline)); 
+	}
 
-    while((n = read(datafd, recvline, MAXLINE)) > 0){
-        fseek(fp, p, SEEK_SET);
-        fwrite(recvline, 1, n, fp);
-        p = p + n;
-        //printf("%s", recvline); 
-        bzero(recvline, (int)sizeof(recvline)); 
-    }
+	sprintf(sendline, "200 Command OK");
+	write(controlfd, sendline, strlen(sendline));
+	fclose(fp);
 
-    sprintf(sendline, "200 Command OK");
-    write(controlfd, sendline, strlen(sendline));
-    fclose(fp);
-    return 1;
+	/* CSCD58 addition */
+	int uncompoutputfilepathlen = strlen(temp1) + 1;
+	char uncompoutputfilepath[uncompoutputfilepathlen];
+	bzero(uncompoutputfilepath, uncompoutputfilepathlen);
+	char * pecsuffix = ".pec";
+	int pecsuffix_len = strlen(pecsuffix);
+	/* - pecsuffix_len to get rid of the trailing .pec */
+	strncpy(uncompoutputfilepath, temp1, strlen(temp1) - pecsuffix_len);
+
+	if (0 != uncomp_file(temp1, uncompoutputfilepath)) {
+		fprintf(stderr, "ERROR: could not uncompress file!\n");
+	}
+	if (0 != remove(temp1)) {
+		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
+	}
+	/* CSCD58 end of addition */
+
+	return 1;
 }
 
 int main(int argc, char **argv){
