@@ -1,6 +1,6 @@
 //myclient.c source file
 
-#include "pec-ftp.h"
+#include "comp.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>

@@ -19,7 +19,7 @@
 #include	<sys/types.h>
 #include 	<dirent.h>
 
-#include "pec-ftp.h"
+#include "comp.h"
 
 #define 	MAXLINE 	4096
 #define		LISTENQ		1024

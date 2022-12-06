@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #include "LzmaLib.h"
-#include "pec-ftp.h"
+#include "comp.h"
 
 int read_bytes(unsigned char *ret, size_t num_bytes, FILE *f) {
 	/* {{{ */
