@@ -2,7 +2,7 @@
 
 This CSCD58 Final Project is comprised of 3 major, distinct contributions.
 
-## 1. Basic FTP Client/Server hosted by github user pranav93y
+## 1. Basic FTP Client/Server by users pranav93y and nishant-sachdeva
 [https://github.com/pranav93y/Basic-FTP-Client-Server](https://github.com/pranav93y/Basic-FTP-Client-Server)  
 It's worth noting that while it served at the FTP implementation that we made our
 extensions on (as extensions to FTP was the focus of our project), this code
@@ -65,9 +65,9 @@ the compression related changes made in `do_put()`, `do_get()` of `src/ftpclient
 and in `do_retr()`, `do_stor()` of `src/ftpserver.c`.
 
 Of note was the work on a custom file format needed for the proper transfer of
-files from client to server or vice versa. This format which is used for files
+files from client to server or vice versa. This format - which is used for files
 that end in `.pec` (which hopefully you will never see since they are meant to
-be temporary) takes the form of blocks which each have the structure:
+be temporary) - takes the form of repeated blocks, each having the structure:
 ```
 8 bytes for a uint64_t representing the length (in bytes) of the compressed data in the data chunk of this block.
 1 byte for a char representing whether the data in the data chunk is raw and unchanged (=0) or LZMA compressed (=1).
@@ -118,6 +118,38 @@ port for both your ftpserver and ftpclient. If you did, try a different port.
 You will interface with the server through the client, you cannot run any
 commands on the server side, but you will see some output that might be helpful.
 
+To test, you may want to copy a variety of files into both your
+`basic-FTP-Client-Server/bin/ftpserver/` directory (for the client to access) and
+into your `basic-FTP-Client-Server/bin/ftpserver/` directory (for the client to
+put). Once you've done that (which you can do while the client and server are
+running), go to your terminal that is running `ftpclient` and begin any of the
+following tests:
+
+## 1. Client GET
+1. From your ftpclient terminal, type `ls` at the prompt and hit enter to see
+   what files the server has.
+2. To retrieve a file from the server, type `get <filename>` and wait to
+   receive the file.
+3. It should appear (byte for byte identical to the original on the server, in
+   content and name) in your `basic-FTP-Client-Server/bin/ftpclient` directory!
+
+## 2. Client PUT
+1. If you are running the ftpclient, press Ctrl+C to kill the process. From
+   your `basic-FTP-Client-Server/bin/ftpclient` directory, run the shell
+   command `ls` to see what files your client has access to. Then startup the
+   client again with the command: `./ftpclient <server-ip>
+   <server-listen-port>`
+2. From your ftpclient terminal, type `ls` at the prompt and hit enter to see
+   what files the server has (we don't want to overwrite any of them!)
+3. To put a file from the server, type `get <local-filename>` (where
+   `<local-filename>` is  one of the filenames printed by the shell command
+   `ls` in step 1) and wait to receive the file.
+4. It should appear (byte for byte identical to the original on the server, in
+   content and name) in your `basic-FTP-Client-Server/bin/ftpclient` directory!
+
+## TODO: show encryption? show parallelization? show compression? how? through wireshark?
+
+
 
 # Client Interface Commands
 
@@ -136,16 +168,5 @@ disconnected, waiting for future connections*
 the directories containing the executables, ls however, can list the contents
 of directories contained within.*
 
-
-# Example Run
-- The console on the left is running the ftpclient, which currently does not
-  contain other files in its directory.
-- The console on the right is running the ftpserver, which contains the test
-  files in its directory.
-- The client firsts performs ls, prompting the server for a list of available
-  files in its directory.
-- The client then asks to get file "a", and quits.
-- The file has been transferred from the server to the client, and has been
-  renamed "a-out".
 
 ![Imgur](https://imgur.com/oyjYZ36.gif)
