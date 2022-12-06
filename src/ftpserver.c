@@ -18,7 +18,6 @@
 #include	<sys/stat.h>
 #include	<sys/types.h>
 #include 	<dirent.h>
-
 #include        "ftputil.h"
 
 //function trims leading and trailing whitespaces
