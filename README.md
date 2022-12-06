@@ -90,7 +90,7 @@ Dawson worked on the encryption part of the project.
 Jacky worked on the parallelization part of the project.
 
 
-# Usage
+# How to run and test
 In one terminal, start the server:
 ```
 cd basic-FTP-Client-Server/
@@ -112,6 +112,9 @@ For example: (make sure you run the server first)
 ```
 ./ftpclient 127.0.0.1 45678
 ```
+If your ftpclient says its connection was denied, make sure you entered the same
+port for both your ftpserver and ftpclient. If you did, try a different port.
+
 You will interface with the server through the client, you cannot run any
 commands on the server side, but you will see some output that might be helpful.
 
