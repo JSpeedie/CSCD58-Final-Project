@@ -5,9 +5,9 @@ COMPRESSDEP = Alloc.c CpuArch.c LzFind.c LzFindMt.c LzFindOpt.c \
 
 make: ftpclient.c ftpserver.c $(COMPRESSDEP)
 	gcc -pthread -g -Wall ftpclient.c $(COMPRESSDEP) -o ftpclient
-	mv ftpclient ../bin
+	mv ftpclient ../bin/ftpclient/
 	gcc -g -Wall ftpserver.c $(COMPRESSDEP) -o ftpserver
-	mv ftpserver ../bin
+	mv ftpserver ../bin/ftpserver/
 
 clean:
 	rm ../bin/ftpclient ../bin/ftpserver

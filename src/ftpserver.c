@@ -19,7 +19,7 @@
 #include	<sys/types.h>
 #include 	<dirent.h>
 
-
+#include "pec-ftp.h"
 
 #define 	MAXLINE 	4096
 #define		LISTENQ		1024
@@ -197,6 +197,7 @@ int do_retr(int controlfd, int datafd, char *input){
 	bzero(sendline, (int)sizeof(sendline));
 	bzero(str, (int)sizeof(str));
 
+
 	if(get_filename(input, filename) > 0){
 		sprintf(str, "cat %s", filename);
 
@@ -211,6 +212,19 @@ int do_retr(int controlfd, int datafd, char *input){
     	write(controlfd, sendline, strlen(sendline));
 		return -1;
 	}
+
+	/* CSCD58 addition */
+	int compoutputfilepathlen = strlen(filename) + 4 + 1;
+	char compoutputfilepath[compoutputfilepathlen];
+	bzero(compoutputfilepath, compoutputfilepathlen);
+	strncpy(&compoutputfilepath[0], filename, strlen(filename));
+	strncat(&compoutputfilepath[0], ".pec", 4);
+
+	if (0 != comp_file(filename, compoutputfilepath)) {
+		fprintf(stderr, "ERROR: could not compress file!\n");
+	}
+	sprintf(str, "cat %s", compoutputfilepath);
+	/* CSCD58 end of addition */
 
 	FILE *in;
     extern FILE *popen();
@@ -230,6 +244,11 @@ int do_retr(int controlfd, int datafd, char *input){
     sprintf(sendline, "200 Command OK");
     write(controlfd, sendline, strlen(sendline));
     pclose(in);
+	/* CSCD58 addition */
+	if (0 != remove(compoutputfilepath)) {
+		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
+	}
+	/* CSCD58 end of addition */
     return 1;
 }
 

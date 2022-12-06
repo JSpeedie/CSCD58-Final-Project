@@ -1,6 +1,5 @@
 //myclient.c source file
 
-#include "LzmaLib.h"
 #include "pec-ftp.h"
 
 #include <arpa/inet.h>
@@ -279,8 +278,6 @@ int do_get(int controlfd, int datafd, char *input){
     fd_set rdset;
     int maxfdp1, data_finished = FALSE, control_finished = FALSE;
 
-    
-
     if(get_filename(input, filename) < 0){
         printf("No filename Detected...\n");
         char send[1024];
@@ -292,9 +289,10 @@ int do_get(int controlfd, int datafd, char *input){
         return -1;
     }else{
         sprintf(str, "RETR %s", filename);
-    }   
+    }
     printf("File: %s\n", filename);
-    sprintf(temp1, "%s-out", filename);
+    sprintf(temp1, "%s.pec", filename);
+    /* sprintf(temp1, "%s-out", filename); */
     bzero(filename, (int)sizeof(filename));
 
 
@@ -309,7 +307,6 @@ int do_get(int controlfd, int datafd, char *input){
         maxfdp1 = datafd + 1;
     }
 
-    
     FILE *fp;
     if((fp = fopen(temp1, "w")) == NULL){
         perror("file error");
@@ -358,6 +355,25 @@ int do_get(int controlfd, int datafd, char *input){
     bzero(recvline, (int)sizeof(recvline));
     bzero(str, (int)sizeof(str));
     fclose(fp);
+
+	/* CSCD58 addition */
+	int uncompoutputfilepathlen = strlen(temp1) + 4 + 1;
+	char uncompoutputfilepath[uncompoutputfilepathlen];
+	bzero(uncompoutputfilepath, uncompoutputfilepathlen);
+	char * pecsuffix = ".pec";
+	int pecsuffix_len = strlen(pecsuffix);
+	/* - pecsuffix_len to get rid of the trailing .pec */
+	strncpy(uncompoutputfilepath, temp1, strlen(temp1) - pecsuffix_len);
+	strncat(uncompoutputfilepath, "-out", 4);
+
+	if (0 != uncomp_file(temp1, uncompoutputfilepath)) {
+		fprintf(stderr, "ERROR: could not uncompress file!\n");
+	}
+	if (0 != remove(temp1)) {
+		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
+	}
+	/* CSCD58 end of addition */
+
     return 1;
 }
 
@@ -371,8 +387,6 @@ int do_put(int controlfd, int datafd, char *input){
     fd_set wrset, rdset;
     int maxfdp1, data_finished = FALSE, control_finished = FALSE;
 
-    
-
     if(get_filename(input, filename) < 0){
         printf("No filename Detected...\n");
         char send[1024];
@@ -384,7 +398,7 @@ int do_put(int controlfd, int datafd, char *input){
         return -1;
     }else{
         sprintf(str, "STOR %s", filename);
-    }   
+    }
 
     sprintf(temp1, "cat %s", filename);
     bzero(filename, (int)sizeof(filename));
@@ -452,151 +466,12 @@ int do_put(int controlfd, int datafd, char *input){
     return 1;
 }
 
-/* unsigned char * read_file(char *filepath, uint64_t * ret_len, off_t start) { */
-/* 	FILE *in_file = fopen(filepath, "rb"); */
-
-/* 	if (in_file == NULL) { */
-/* 		perror("fopen (main)"); */
-/* 		return NULL; */
-/* 	} */
-
-/* 	if (start != 0) fseek(in_file, start, SEEK_SET); */
-
-/* 	// TODO: maybe read file size with stat() and allocate so we don't */
-/* 	// spend so much time on costly realloc's later */
-/* 	unsigned int ret_size = 1024; /1* Start by allocating 1kB *1/ */
-/* 	unsigned char * ret = calloc(ret_size, sizeof(char)); */
-/* 	/1* Alloc call failed, exit *1/ */
-/* 	if (ret == NULL) { */
-/* 		fprintf(stderr, "ERROR: read_file(): could not allocate buffer for file\n"); */
-/* 		return NULL; */
-/* 	} */
-/* 	unsigned int ret_i = 0; */
-
-/* 	size_t nmem_read = 0; */
-/* 	while (0 != (nmem_read = fread(&ret[ret_i], 1, ret_size - ret_i, in_file)) ) { */
-/* 		ret_i += nmem_read; */
-/* 		/1* If there is no more space in the buffer, resize it *1/ */
-/* 		if (ret_i >= ret_size) { */
-/* 			ret_size = (ret_size * 4) + 1; */
-/* 			if (ret_size > MAX_CHUNK) ret_size = MAX_CHUNK; */
-/* 			if (ret_i >= ret_size) { */
-/* 				fprintf(stderr, "ERROR: read_file(): could not allocate buffer for file\n"); */
-/* 				return NULL; */
-/* 			} */
-/* 			ret = (unsigned char *) realloc(ret, ret_size); */
-/* 			/1* Alloc call failed, exit *1/ */
-/* 			if (ret == NULL) { */
-/* 				fprintf(stderr, "ERROR: read_file(): could not allocate buffer for file\n"); */
-/* 				return NULL; */
-/* 			} */
-/* 		} */
-/* 	} */
-
-/* 	ret_i += nmem_read; */
-/* 	*ret_len = ret_i; */
-
-/* 	fclose(in_file); */
-
-/* 	return ret; */
-/* } */
-
-
-
-/* int read_pecheader_file(unsigned char *pecheader, char *filepath) { */
-/* 	FILE *in_file = fopen(filepath, "rb"); */
-
-/* 	if (in_file == NULL) { */
-/* 		perror("fopen (main)"); */
-/* 		return -1; */
-/* 	} */
-
-/* 	if (PEC_HEADER_SIZE != fread(pecheader, 1, PEC_HEADER_SIZE, in_file) ) { */
-/* 		fprintf(stderr, "ERROR: read_pecheader_file(): could not read header\n"); */
-/* 		return -1; */
-/* 	} */
-
-/* 	fclose(in_file); */
-
-/* 	return 0; */
-/* } */
-
-
-/* int write_chunk_to_file(unsigned char *src, uint64_t src_len, FILE *f) { */
-/* 	return fwrite(&src[0], 1, src_len, f); */
-/* } */
-
-
-
-/* int write_file(unsigned char *src, uint64_t src_len, char *filepath, char * file_opt) { */
-/* 	FILE *out_file = fopen(filepath, file_opt); */
-
-/* 	if (out_file == NULL) { */
-/* 		perror("fopen (main)"); */
-/* 		return -1; */
-/* 	} */
-
-/* 	size_t increment = 1024; /1* Write at most 1kB at a time *1/ */
-/* 	/1* Don't write past the end of the buffer *1/ */
-/* 	if (increment > src_len) increment = src_len; */
-/* 	size_t nmem_written = 0; */
-/* 	uint64_t i = 0; */
-/* 	while (i < src_len) { */
-/* 		nmem_written = fwrite(&src[i], 1, increment, out_file); */
-/* 		i += nmem_written; */
-/* 		if (nmem_written != increment) break; */
-/* 		/1* Don't write past the end of the buffer *1/ */
-/* 		if (increment > src_len - i) increment = src_len - i; */
-/* 	} */
-
-/* 	fclose(out_file); */
-
-/* 	return 0; */
-/* } */
-
 
 int main(int argc, char **argv){
-	if (argc != 2) {
-		printf("Usage: ./ftpclient <filepath>\n");
-		return -1;
-	}
-
-	char inputfile[1024];
-	char * inputfilepath = &inputfile[0];
-	sscanf(argv[1], "%s", inputfilepath);
-
-	char * compoutputfilepath = malloc(strlen(inputfilepath) + 5 + 1);
-	strncpy(compoutputfilepath, inputfilepath, strlen(inputfilepath));
-	strncat(compoutputfilepath, "-comp", 5 + 1);
-
-	if (0 != comp_file(inputfilepath, compoutputfilepath)) {
-		fprintf(stderr, "ERROR: could not compress file!\n");
-	}
-
-	printf("--------------------------------------------- begin uncompress\n");
-
-	char * uncompoutputfilepath = malloc(strlen(compoutputfilepath) + 7 + 1);
-	strncpy(uncompoutputfilepath, compoutputfilepath, strlen(compoutputfilepath));
-	strncat(uncompoutputfilepath, "-uncomp", 7 + 1);
-
-	if (0 != uncomp_file(compoutputfilepath, uncompoutputfilepath)) {
-		fprintf(stderr, "ERROR: could not uncompress file!\n");
-	}
-
-
-
-
-	return 0;
-
-
-
-
-
 	int server_port, controlfd, listenfd, datafd, code, n5, n6, x;
     uint16_t port;
 	struct sockaddr_in servaddr, data_addr;
 	char command[1024], ip[50], str[MAXLINE+1];
-
 
 	if(argc != 3){
 		printf("Invalid Number of Arguments...\n");
@@ -625,7 +500,6 @@ int main(int argc, char **argv){
     	perror("connect error");
     	exit(-1);
     }
-
 
     //set up data connection------------------------------------------------------
     listenfd = socket(AF_INET, SOCK_STREAM, 0);

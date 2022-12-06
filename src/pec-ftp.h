@@ -3,7 +3,7 @@
 
 /* Change MAX_CHUNK value as needed depending on RAM constraints of the systems.
  * Max value is 4294967295 */
-#define MAX_CHUNK 4294967295
+#define MAX_CHUNK 2147483647
 #define PEC_HEADER_SIZE 9
 #define CHUNK_HEADER_SIZE 8
 
