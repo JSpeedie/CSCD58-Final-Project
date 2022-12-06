@@ -214,11 +214,16 @@ int do_retr(int controlfd, int datafd, char *input){
 	}
 
 	/* CSCD58 addition */
-	int compoutputfilepathlen = strlen(filename) + 4 + 1;
+	int compoutputfilepathlen = strlen(filename) + 4 + 7 + 1;
 	char compoutputfilepath[compoutputfilepathlen];
 	bzero(compoutputfilepath, compoutputfilepathlen);
 	strncpy(&compoutputfilepath[0], filename, strlen(filename));
 	strncat(&compoutputfilepath[0], ".pec", 4);
+	/* Generate a temp name for our compressed .pec file */
+	strncat(&compoutputfilepath[0], "-XXXXXX", 7);
+	int r = mkstemp(compoutputfilepath);
+	close(r);
+	unlink(compoutputfilepath);
 
 	if (0 != comp_file(filename, compoutputfilepath)) {
 		fprintf(stderr, "ERROR: could not compress file!\n");
