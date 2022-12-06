@@ -259,13 +259,13 @@ int do_retr(int controlfd, int datafd, char *input){
 	sprintf(str, "cat %s", compoutputfilepath);
 
     int encoutputfilepathlen = strlen(filename) + 4 + 7 + 1;
-	char encoutputfilepath[encpoutputfilepathlen];
-	bzero(encoutputfilepath, encpoutputfilepathlen);
+	char encoutputfilepath[encoutputfilepathlen];
+	bzero(encoutputfilepath, encoutputfilepathlen);
 	strncpy(&encoutputfilepath[0], filename, strlen(filename));
 	strncat(&encoutputfilepath[0], ".enc", 4);
 	/* Generate a temp name for our encrypted .enc file */
 	strncat(&encoutputfilepath[0], "-XXXXXX", 7);
-	int r = mkstemp(encoutputfilepath);
+	r = mkstemp(encoutputfilepath);
 	close(r);
 	unlink(encoutputfilepath);
 
@@ -295,9 +295,9 @@ int do_retr(int controlfd, int datafd, char *input){
 	write(controlfd, sendline, strlen(sendline));
 	pclose(in);
 	/* CSCD58 addition */
-	if (0 != remove(compoutputfilepath)) {
-		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
-	}
+	/* if (0 != remove(compoutputfilepath)) { */
+	/* 	fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n"); */
+	/* } */
 	/* CSCD58 end of addition */
 	return 1;
 }
@@ -355,9 +355,9 @@ int do_stor(int controlfd, int datafd, char *input){
 	if (0 != uncomp_file(temp1, uncompoutputfilepath)) {
 		fprintf(stderr, "ERROR: could not uncompress file!\n");
 	}
-	if (0 != remove(temp1)) {
-		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
-	}
+	/* if (0 != remove(temp1)) { */
+	/* 	fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n"); */
+	/* } */
 	/* CSCD58 end of addition */
 
 	return 1;
