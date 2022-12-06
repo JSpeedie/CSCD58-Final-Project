@@ -18,6 +18,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "enc.h"
 
 #define 	MAXLINE 4096
 #define     LISTENQ 1024
@@ -197,6 +198,33 @@ int get_filename(char *input, char *fileptr){
     }
 }
 
+/* CSCD58 Addition */
+int do_dh(int controlfd, int datafd, uint32_t key[4]) {
+    uint64_t dh_p = 1;
+    dh_p = (dh_p << 32) - 99;
+    uint64_t dh_g = 5;
+    uint64_t dh_a, dh_ka, dh_kb, dh_k;
+    fd_set fds;
+    FD_ZERO(&fds);
+
+    for (int i = 0; i < 4; i++) {
+        dh_a = (rand() % (dh_p - 2)) + 2;
+        dh_ka = sq_mp(dh_g, dh_a, dh_p);
+        FD_SET(datafd, &fds);
+
+        write(datafd, (char *)&dh_ka, sizeof(dh_ka));
+
+        select(datafd + 1, &fds, NULL, NULL, NULL);
+        read(datafd, (char *)&dh_kb, sizeof(dh_kb));
+
+        dh_k = sq_mp(dh_kb, dh_a, dh_p);
+        key[i] = dh_k & 0xffffffff;
+    }
+
+    return 0;
+}
+/* End CSCD58 Addition */
+
 int do_ls(int controlfd, int datafd, char *input){
     
     char filelist[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp;
@@ -293,7 +321,7 @@ int do_get(int controlfd, int datafd, char *input){
 	printf("File: %s\n", filename);
 
 	/* CSCD58 addition */
-	sprintf(temp1, "%s.pec", filename);
+	sprintf(temp1, "%s.enc", filename);
 	/* sprintf(temp1, "%s-out", filename); */
 	/* CSCD58 end of addition */
 
@@ -317,6 +345,12 @@ int do_get(int controlfd, int datafd, char *input){
 	}
 
 	write(controlfd, str, strlen(str));
+
+    /* CSCD58 Addition */
+    uint32_t key[4];
+    do_dh(controlfd, datafd, key);
+    /* End CSCD58 Addition */
+
 	while(1){
 		if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
 		if(data_finished == FALSE){FD_SET(datafd, &rdset);}
@@ -360,18 +394,33 @@ int do_get(int controlfd, int datafd, char *input){
 	fclose(fp);
 
 	/* CSCD58 addition */
-	int uncompoutputfilepathlen = strlen(temp1) + 1;
+    int unencoutputfilepathlen = strlen(temp1) + 1;
+	char unencoutputfilepath[unencoutputfilepathlen];
+	bzero(unencoutputfilepath, unencoutputfilepathlen);
+	char * encsuffix = ".enc";
+	int encsuffix_len = strlen(encsuffix);
+	/* - encsuffix_len to get rid of the trailing .enc */
+	strncpy(unencoutputfilepath, temp1, strlen(temp1) - encsuffix_len);
+    strncat(unencoutputfilepath, ".enc", 4);
+
+    dec_file(temp1, unencoutputfilepath, key);
+
+    if (0 != remove(temp1)) {
+		fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
+	}
+
+	int uncompoutputfilepathlen = strlen(unencoutputfilepath) + 1;
 	char uncompoutputfilepath[uncompoutputfilepathlen];
 	bzero(uncompoutputfilepath, uncompoutputfilepathlen);
 	char * pecsuffix = ".pec";
 	int pecsuffix_len = strlen(pecsuffix);
 	/* - pecsuffix_len to get rid of the trailing .pec */
-	strncpy(uncompoutputfilepath, temp1, strlen(temp1) - pecsuffix_len);
+	strncpy(uncompoutputfilepath, unencoutputfilepath, strlen(unencoutputfilepath) - pecsuffix_len);
 
-	if (0 != uncomp_file(temp1, uncompoutputfilepath)) {
+	if (0 != uncomp_file(unencoutputfilepath, uncompoutputfilepath)) {
 		fprintf(stderr, "ERROR: could not uncompress file!\n");
 	}
-	if (0 != remove(temp1)) {
+	if (0 != remove(unencoutputfilepath)) {
 		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
 	}
 	/* CSCD58 end of addition */

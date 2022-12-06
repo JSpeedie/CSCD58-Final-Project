@@ -20,6 +20,7 @@
 #include 	<dirent.h>
 
 #include "comp.h"
+#include "enc.h"
 
 #define 	MAXLINE 	4096
 #define		LISTENQ		1024
@@ -140,6 +141,31 @@ int get_command(char *command){
     return value;
 }
 
+int do_dh(int controlfd, int datafd, uint32_t key[4]) {
+    uint64_t dh_p = 1;
+    dh_p = (dh_p << 32) - 99;
+    uint64_t dh_g = 5;
+    uint64_t dh_b, dh_ka, dh_kb, dh_k;
+    fd_set fds;
+    FD_ZERO(&fds);
+
+    for (int i = 0; i < 4; i++) {
+        dh_b = (rand() % (dh_p - 2)) + 2;
+        dh_kb = sq_mp(dh_g, dh_b, dh_p);
+        FD_SET(datafd, &fds);
+
+        select(datafd + 1, &fds, NULL, NULL, NULL);
+        read(datafd, (char *)&dh_ka, sizeof(dh_ka));
+        
+        write(datafd, (char *)&dh_kb, sizeof(dh_kb));
+
+        dh_k = sq_mp(dh_ka, dh_b, dh_p);
+        key[i] = dh_k & 0xffffffff;
+    }
+    
+    return 0;
+}
+
 int do_list(int controlfd, int datafd, char *input){
 	char filelist[1024], sendline[MAXLINE+1], str[MAXLINE+1];
 	bzero(filelist, (int)sizeof(filelist));
@@ -197,6 +223,8 @@ int do_retr(int controlfd, int datafd, char *input){
 	bzero(sendline, (int)sizeof(sendline));
 	bzero(str, (int)sizeof(str));
 
+    uint32_t key[4];
+    do_dh(controlfd, datafd, key);
 
 	if(get_filename(input, filename) > 0){
 		sprintf(str, "cat %s", filename);
@@ -229,6 +257,21 @@ int do_retr(int controlfd, int datafd, char *input){
 		fprintf(stderr, "ERROR: could not compress file!\n");
 	}
 	sprintf(str, "cat %s", compoutputfilepath);
+
+    int encoutputfilepathlen = strlen(filename) + 4 + 7 + 1;
+	char encoutputfilepath[encpoutputfilepathlen];
+	bzero(encoutputfilepath, encpoutputfilepathlen);
+	strncpy(&encoutputfilepath[0], filename, strlen(filename));
+	strncat(&encoutputfilepath[0], ".enc", 4);
+	/* Generate a temp name for our encrypted .enc file */
+	strncat(&encoutputfilepath[0], "-XXXXXX", 7);
+	int r = mkstemp(encoutputfilepath);
+	close(r);
+	unlink(encoutputfilepath);
+
+    enc_file(str, encoutputfilepath, key);
+
+    sprintf(str, "cat %s", encoutputfilepath);
 	/* CSCD58 end of addition */
 
 	FILE *in;
