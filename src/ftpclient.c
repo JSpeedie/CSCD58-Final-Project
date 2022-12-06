@@ -1,5 +1,7 @@
 //myclient.c source file
 
+#include    "LzmaLib.h"
+
 #include 	<sys/types.h>
 #include 	<sys/socket.h>
 #include 	<strings.h>
@@ -15,12 +17,23 @@
 #include	<pthread.h>
 #include    <sys/select.h>
 #include    <sys/time.h>
+#include    <sys/stat.h>
 
+
+/* Change MAX_CHUNK value as needed depending on RAM constraints of the systems.
+ * Max value is 4294967295 */
+#define MAX_CHUNK 4294967295
+#define PEC_HEADER_SIZE 5
+#define CHUNK_HEADER_SIZE 4
 
 #define 	MAXLINE 4096
 #define     LISTENQ 1024
 #define		TRUE	1
 #define		FALSE	0
+
+char GREEN[] = { "\x1B[32m" };
+char RED[] = { "\x1B[31m" };
+char NORMAL[] = { "\x1B[0m" };
 
 //function trims leading and trailing whitespaces
 void trim(char *str)
@@ -445,7 +458,378 @@ int do_put(int controlfd, int datafd, char *input){
     return 1;
 }
 
+unsigned char * read_file(char *filepath, uint64_t * ret_len, off_t start) {
+	FILE *in_file = fopen(filepath, "rb");
+
+	if (in_file == NULL) {
+		perror("fopen (main)");
+		return NULL;
+	}
+
+	if (start != 0) fseek(in_file, start, SEEK_SET);
+
+	// TODO: maybe read file size with stat() and allocate so we don't
+	// spend so much time on costly realloc's later
+	unsigned int ret_size = 1024; /* Start by allocating 1kB */
+	unsigned char * ret = calloc(ret_size, sizeof(char));
+	/* Alloc call failed, exit */
+	if (ret == NULL) {
+		fprintf(stderr, "ERROR: read_file(): could not allocate buffer for file\n");
+		return NULL;
+	}
+	unsigned int ret_i = 0;
+
+	size_t nmem_read = 0;
+	while (0 != (nmem_read = fread(&ret[ret_i], 1, ret_size - ret_i, in_file)) ) {
+		ret_i += nmem_read;
+		/* If there is no more space in the buffer, resize it */
+		if (ret_i >= ret_size) {
+			ret_size = (ret_size * 4) + 1;
+			if (ret_size > MAX_CHUNK) ret_size = MAX_CHUNK;
+			if (ret_i >= ret_size) {
+				fprintf(stderr, "ERROR: read_file(): could not allocate buffer for file\n");
+				return NULL;
+			}
+			ret = (unsigned char *) realloc(ret, ret_size);
+			/* Alloc call failed, exit */
+			if (ret == NULL) {
+				fprintf(stderr, "ERROR: read_file(): could not allocate buffer for file\n");
+				return NULL;
+			}
+		}
+	}
+
+	ret_i += nmem_read;
+	*ret_len = ret_i;
+
+	fclose(in_file);
+
+	return ret;
+}
+
+int read_pecheader_file(unsigned char *pecheader, char *filepath) {
+	FILE *in_file = fopen(filepath, "rb");
+
+	if (in_file == NULL) {
+		perror("fopen (main)");
+		return -1;
+	}
+
+	if (PEC_HEADER_SIZE != fread(pecheader, 1, PEC_HEADER_SIZE, in_file) ) {
+		fprintf(stderr, "ERROR: read_pecheader_file(): could not read header\n");
+		return -1;
+	}
+
+	fclose(in_file);
+
+	return 0;
+}
+
+int read_bytes(unsigned char *ret, size_t num_bytes, FILE *f) {
+	size_t nmem_read = 0;
+	if (num_bytes != (nmem_read = fread(ret, 1, num_bytes, f)) ) {
+		fprintf(stderr, "ERROR: read_bytes(): could not read %lu bytes, was only able to read %lu\n", num_bytes, nmem_read);
+		return -1;
+	}
+
+	return 0;
+}
+
+unsigned char * read_chunk_of_file(FILE * f, uint64_t * ret_len) {
+
+	unsigned char * ret = malloc(MAX_CHUNK);
+	/* Alloc call failed, exit */
+	if (ret == NULL) {
+		fprintf(stderr, "ERROR: read_chunk_of_file(): could not allocate buffer for file\n");
+		return NULL;
+	}
+
+	size_t nmem_read = fread(&ret[0], 1, MAX_CHUNK, f);
+
+	*ret_len = nmem_read;
+
+	return ret;
+}
+
+int write_chunk_to_file(unsigned char *src, uint64_t src_len, FILE *f) {
+	return fwrite(&src[0], 1, src_len, f);
+}
+
+int write_file(unsigned char *src, uint64_t src_len, char *filepath, char * file_opt) {
+	FILE *out_file = fopen(filepath, file_opt);
+
+	if (out_file == NULL) {
+		perror("fopen (main)");
+		return -1;
+	}
+
+	size_t increment = 1024; /* Write at most 1kB at a time */
+	/* Don't write past the end of the buffer */
+	if (increment > src_len) increment = src_len;
+	size_t nmem_written = 0;
+	uint64_t i = 0;
+	while (i < src_len) {
+		nmem_written = fwrite(&src[i], 1, increment, out_file);
+		i += nmem_written;
+		if (nmem_written != increment) break;
+		/* Don't write past the end of the buffer */
+		if (increment > src_len - i) increment = src_len - i;
+	}
+
+	fclose(out_file);
+
+	return 0;
+}
+
+void clear_file(char* file) {
+
+	FILE* victim = fopen(file, "w");
+	if (victim == NULL) {
+		perror("fopen (clear_file)");
+		return;
+	}
+	fprintf(victim, "");
+	fclose(victim);
+
+	return;
+}
+
 int main(int argc, char **argv){
+	if (argc != 2) {
+		printf("Usage: ./ftpclient <filepath>\n");
+		return -1;
+	}
+
+	char inputfile[1024];
+	char * inputfilepath = &inputfile[0];
+	sscanf(argv[1], "%s", inputfilepath);
+	/* char * inputfilepath = "largefile.mkv"; */
+
+	char * compressedoutputfilepath = (char *) malloc(strlen(inputfilepath) + 9 + 1);
+	strncpy(compressedoutputfilepath, inputfilepath, strlen(inputfilepath));
+	strncat(compressedoutputfilepath, "-out-comp", 9 + 1);
+	char * uncompressedoutputfilepath = (char *) malloc(strlen(inputfilepath) + 9 + 7 + 1);
+	strncpy(uncompressedoutputfilepath, inputfilepath, strlen(inputfilepath));
+	strncat(uncompressedoutputfilepath, "-out-comp-uncomp", 9 + 7 + 1);
+
+	struct stat s;
+	stat(inputfilepath, &s);
+
+	/* If the size of the file is too large to be done in one pass (> 2^32-1 bytes) */
+	if (s.st_size > MAX_CHUNK) {
+		fprintf(stderr, "WARNING: File is bigger than max chunk size and cannot be done in one pass. It must be compressed incrementally.\n");
+	}
+
+	FILE *in_file = fopen(inputfilepath, "rb");
+
+	if (in_file == NULL) {
+		perror("fopen (main)");
+		return -1;
+	}
+
+	clear_file(compressedoutputfilepath);
+
+	FILE *out_file = fopen(compressedoutputfilepath, "ab");
+
+	if (out_file == NULL) {
+		perror("fopen (main)");
+		return -1;
+	}
+
+	off_t bytes_left = s.st_size;
+	uint64_t inbuf_len;
+	unsigned char *inbuf = NULL;
+
+	/* Read through a file, chunk by chunk, compressing each chunk, preparing
+	 * headers that describe the compressed chunk, and write the headers +
+	 * the compressed chunk to the output file, repeating until it has read
+	 * every byte of the input file */
+	while (bytes_left > 0) {
+		/* 1. Read the largest section we can */
+		inbuf = read_chunk_of_file(in_file, &inbuf_len);
+		if (inbuf == NULL) {
+			fprintf(stderr, "ERROR: couldn't read input file\n");
+			return -1;
+		}
+		bytes_left -= inbuf_len;
+
+		uint64_t lzma_psize = LZMA_PROPS_SIZE;
+		uint64_t dest_len = inbuf_len + inbuf_len / 3 + 128;
+		uint64_t outbuf_len = LZMA_PROPS_SIZE + dest_len;
+		unsigned char * outbuf = malloc(outbuf_len);
+		/* Alloc call failed, exit */
+		if (outbuf == NULL) {
+			fprintf(stderr, "ERROR: could not allocate buffer for compressed file\n");
+			return -1;
+		}
+
+		/* 2. Compress the data in 'inbuf' and put in 'outbuf' */
+		MY_STDAPI compret = LzmaCompress( \
+			&outbuf[LZMA_PROPS_SIZE], &dest_len, &inbuf[0], inbuf_len, \
+			&outbuf[0], &lzma_psize, 5, 1 << 24, 3, 0, 2, 32, 1);
+		if (compret != SZ_OK) {
+			fprintf(stderr, "ERROR: compression call failed!\n");
+			return -1;
+		}
+		outbuf_len = LZMA_PROPS_SIZE + dest_len;
+
+		/* 3. Prepare the Chunk header */
+		uint64_t chunk_len = outbuf_len;
+		if (outbuf_len >= inbuf_len) {
+			chunk_len = inbuf_len;
+		}
+
+		/* 4. Write the chunk header to the output file */
+		/* If the compression did not reduce the size of the chunk */
+		if (1 != fwrite(&chunk_len, sizeof(chunk_len), 1, out_file)) {
+			fprintf(stderr, "ERROR: Could not write chunk length to output file\n");
+		}
+
+		/* 5. Prepare the PEC header */
+		unsigned char pecheader[PEC_HEADER_SIZE];
+		*((uint64_t *)&pecheader[1]) = inbuf_len;
+		/* If the compression did not reduce the size of the chunk */
+		if (outbuf_len >= inbuf_len) {
+			pecheader[0] = 0;
+		} else {
+			pecheader[0] = 1;
+		}
+
+		/* 6. Write the pec header to the output file */
+		if (1 != fwrite(&pecheader[0], PEC_HEADER_SIZE, 1, out_file)) {
+			fprintf(stderr, "ERROR: Could not write PEC header to output file\n");
+		}
+
+		/* 7. Write the outbuf to the output file */
+		/* If the compression did not reduce the size of the file */
+		if (outbuf_len >= inbuf_len) {
+			if (1 != fwrite(inbuf, inbuf_len, 1, out_file)) {
+				fprintf(stderr, "ERROR: Could not write data content to output file\n");
+			}
+		} else {
+			if (1 != fwrite(outbuf, outbuf_len, 1, out_file)) {
+				fprintf(stderr, "ERROR: Could not write data content output file\n");
+			}
+		}
+		/* Free dynamically alloc'd buffers */
+		free(inbuf);
+		free(outbuf);
+	}
+
+	fclose(in_file);
+	fclose(out_file);
+
+
+
+
+
+	printf("---------- begin uncompress\n");
+
+
+
+
+
+	stat(compressedoutputfilepath, &s);
+
+	in_file = fopen(compressedoutputfilepath, "rb");
+	if (in_file == NULL) {
+		perror("fopen (main)");
+		return -1;
+	}
+
+	clear_file(uncompressedoutputfilepath);
+
+	out_file = fopen(uncompressedoutputfilepath, "ab");
+	if (out_file == NULL) {
+		perror("fopen (main)");
+		return -1;
+	}
+
+	bytes_left = s.st_size;
+	inbuf = NULL;
+
+	/* Read through a file, (chunk length header + pec header + chunk) by
+	 * (chunk length header + pec header + chunk), uncompressing each chunk (if
+	 * needed), and writing the uncompressed chunk (without any of the headers)
+	 * to the output file. */
+	while (bytes_left > 0) {
+		/* 1. Read chunk length header*/
+		uint64_t chunk_len;
+		if (0 != read_bytes((unsigned char *)&chunk_len, sizeof(chunk_len), in_file)) {
+			fprintf(stderr, "ERROR: couldn't read chunk header from chunk\n");
+			return -1;
+		}
+
+		bytes_left -= sizeof(chunk_len);
+
+		/* 2. Read PEC header for chunk */
+		unsigned char pecheader[PEC_HEADER_SIZE];
+		if (0 != read_bytes(&pecheader[0], PEC_HEADER_SIZE, in_file)) {
+			fprintf(stderr, "ERROR: couldn't read pec header from chunk\n");
+			return -1;
+		}
+
+		bytes_left -= PEC_HEADER_SIZE;
+
+		/* 3. Read chunk */
+		inbuf = calloc(chunk_len, sizeof(char));
+		/* Alloc call failed, exit */
+		if (inbuf == NULL) {
+			fprintf(stderr, "ERROR: could not allocate buffer for chunk\n");
+			return -1;
+		}
+		if (0 != read_bytes(inbuf, chunk_len, in_file) ) {
+			fprintf(stderr, "ERROR: couldn't read chunk\n");
+			return -1;
+		}
+
+		bytes_left -= chunk_len;
+
+		/* 4. Process PEC header: If the compression wasn't used on this chunk... */
+		if (pecheader[0] == 0) {
+			/* ... just write chunk contents to the output file */
+			if (1 != fwrite(inbuf, chunk_len, 1, out_file)) {
+				fprintf(stderr, "ERROR: couldn't write output file\n");
+				return -1;
+			}
+		} else {
+			/* Decompress chunk, allocating pecheader[1] bytes for the output */
+			uint64_t inbuf_len = chunk_len;
+			uint64_t outbuf_len = *((uint64_t *)&pecheader[1]);
+			unsigned char * outbuf = malloc(outbuf_len);
+			/* Alloc call failed, exit */
+			if (outbuf == NULL) {
+				fprintf(stderr, "ERROR: could not allocate buffer for uncompressed file\n");
+				return -1;
+			}
+
+			MY_STDAPI uncompret = LzmaUncompress( &outbuf[0], &outbuf_len, \
+				&inbuf[LZMA_PROPS_SIZE], &inbuf_len, &inbuf[0], LZMA_PROPS_SIZE);
+			if (uncompret != SZ_OK) {
+				fprintf(stderr, "ERROR: uncompression call failed!\n");
+				return -1;
+			}
+
+			/* Write the output to a file */
+			if (1 != fwrite(outbuf, outbuf_len, 1, out_file)) {
+				fprintf(stderr, "ERROR: couldn't write output file\n");
+			}
+
+			free(outbuf);
+		}
+		free(inbuf);
+	}
+
+	fclose(in_file);
+	fclose(out_file);
+
+
+
+	return 0;
+
+
+
+
 
 	int server_port, controlfd, listenfd, datafd, code, n5, n6, x;
     uint16_t port;
@@ -467,7 +851,7 @@ int main(int argc, char **argv){
     	perror("socket error");
     	exit(-1);
     }
-                
+
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_port   = htons(server_port);
@@ -475,7 +859,7 @@ int main(int argc, char **argv){
     	perror("inet_pton error");
     	exit(-1);
     }
-        
+
     if (connect(controlfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0){
     	perror("connect error");
     	exit(-1);
@@ -493,7 +877,7 @@ int main(int argc, char **argv){
     bind(listenfd, (struct sockaddr*) &data_addr, sizeof(data_addr));
 
     listen(listenfd, LISTENQ);
-    
+
     //get ip address from control port
     get_ip_port(controlfd, ip, (int *)&x);
     //x = 0;
@@ -501,7 +885,7 @@ int main(int argc, char **argv){
     printf("ip: %s\n", ip);
     //get data connection port from listenfd
     get_ip_port(listenfd, str, (int *)&port);
-    
+
     printf("Port: %d, str: %s\n",  port, str);
     convert(port, &n5, &n6);
 
@@ -510,7 +894,7 @@ int main(int argc, char **argv){
         bzero(command, strlen(command));
         //get command from user
         code = get_command(command);
-        
+
         //user has entered quit
         if(code == 4){
             char quit[1024];
@@ -551,6 +935,6 @@ int main(int argc, char **argv){
         }
         close(datafd);
     }
-    close(controlfd);	
+    close(controlfd);
 	return TRUE;
 }

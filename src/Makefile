@@ -1,9 +1,12 @@
 #Makefile
 
-make: ftpclient.c ftpserver.c
-	gcc -pthread -g -Wall ftpclient.c -o ftpclient
+COMPRESSDEP = Alloc.c CpuArch.c LzFind.c LzFindMt.c LzFindOpt.c \
+	LzmaDec.c LzmaEnc.c LzmaLib.c Threads.c
+
+make: ftpclient.c ftpserver.c $(COMPRESSDEP)
+	gcc -pthread -g -Wall ftpclient.c $(COMPRESSDEP) -o ftpclient
 	mv ftpclient ../bin
-	gcc -g -Wall ftpserver.c -o ftpserver
+	gcc -g -Wall ftpserver.c $(COMPRESSDEP) -o ftpserver
 	mv ftpserver ../bin
 
 clean:
