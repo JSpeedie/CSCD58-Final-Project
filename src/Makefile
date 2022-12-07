@@ -8,9 +8,9 @@ ENCRYPTDEP = enc.c aes.c
 PARDEP = ftputil.c
 
 make: ftpclient.c ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) | bin
-	gcc -pthread -g -Wall ftpclient.c $(COMPRESSDEP) $(ENCRYPTDEP) ($PARDEP) -o ftpclient
+	gcc -pthread -g -Wall ftpclient.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpclient
 	mv ftpclient ../bin/ftpclient/
-	gcc -g -Wall ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) ($PARDEP) -o ftpserver
+	gcc -g -Wall ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpserver
 	mv ftpserver ../bin/ftpserver/
 
 bin:

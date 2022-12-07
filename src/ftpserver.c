@@ -211,14 +211,14 @@ int do_list(int controlfd, int datafd, char *input){
     return 1;
 }
 
-int do_retr(int controlfd, int *datafd, char *input){
+int do_retr(int controlfd, int *datafds, char *input){
 	char filename[1024], sendline[MAXLINE+1], str[MAXLINE+1];
 	bzero(filename, (int)sizeof(filename));
 	bzero(sendline, (int)sizeof(sendline));
 	bzero(str, (int)sizeof(str));
 
     uint32_t key[4];
-    do_dh(controlfd, datafd, key);
+    do_dh(controlfd, datafds[0], key);
 
 	if(get_filename(input, filename) > 0){
 		sprintf(str, "cat %s", filename);
@@ -285,7 +285,7 @@ int do_retr(int controlfd, int *datafd, char *input){
 	size_t nmem_read = 0;
     int i = 0;
 	while (0 != (nmem_read = fread(sendline, 1, sizeof(sendline), in)) ) {
-		write(datafd[i], sendline, nmem_read); // TODO: Parallelize
+		write(datafds[i], sendline, nmem_read); // TODO: Parallelize
 		bzero(sendline, (size_t)sizeof(sendline));
         i = (i + 1 ) %  NDATAFD;
 	}
@@ -441,7 +441,7 @@ int main(int argc, char **argv){
 		if((pid = fork()) == 0){
 			close(listenfd);
 
-			int datafd, code, x = 0, client_port = 0;
+			int datafds[NDATAFD], code, x = 0, client_port = 0;
 			char recvline[MAXLINE+1];
 			char client_ip[50], command[4096];
 
@@ -480,11 +480,11 @@ int main(int argc, char **argv){
 
     			code = get_command(command);
     			if(code == 1){
-    				do_list(connfd, datafd, command);
+    				do_list(connfd, datafds[0], command);
     			}else if(code == 2){
-    				do_retr(connfd, datafd, command);
+    				do_retr(connfd, datafds, command);
     			}else if(code == 3){
-    				do_stor(connfd, datafd, command);
+    				do_stor(connfd, datafds[0], command);
     			}else if(code == 4){
                     char reply[1024];
                     sprintf(reply, "550 Filename Does Not Exist");

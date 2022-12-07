@@ -292,7 +292,7 @@ int do_ls(int controlfd, int datafd, char *input){
     return 1;
 }
 
-int do_get(int controlfd, int *datafd, char *input){
+int do_get(int controlfd, int *datafds, char *input){
 	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp, temp1[1024];
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
@@ -356,9 +356,7 @@ int do_get(int controlfd, int *datafd, char *input){
 
 	if(controlfd > maxfdp1){
         maxfdp1 = controlfd + 1;
-    }else{
-		maxfdp1 = datafd + 1;
-	}
+    }
 
 	FILE *fp;
 	if((fp = fopen(temp1, "w")) == NULL){
@@ -370,7 +368,7 @@ int do_get(int controlfd, int *datafd, char *input){
 
 	/* CSCD58 Addition */
 	uint32_t key[4];
-	do_dh(controlfd, datafd, key);
+	do_dh(controlfd, datafds[0], key);
 	/* End CSCD58 Addition */
     
     /* CSCD58 Additon - Parallelization */
@@ -416,7 +414,7 @@ int do_get(int controlfd, int *datafd, char *input){
         }
 
     }
-    /* End CSCD58 Additoon - Parallelization */*/
+    /* End CSCD58 Additoon - Parallelization */
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(str, (int)sizeof(str));
@@ -486,8 +484,9 @@ int do_put(int controlfd, int datafd, char *input){
 		printf("Server Control Response: %s\n", send);
 		return -1;
 	}
-
+	
 	sprintf(str, "STOR %s", filename);
+
 	/* CSCD58 addition */
 	char * compsuffix = ".comp";
 	int compsuffix_len = strlen(compsuffix);
@@ -504,6 +503,7 @@ int do_put(int controlfd, int datafd, char *input){
 
 	if (0 != comp_file(filename, compfilepath)) {
 		fprintf(stderr, "ERROR: could not compress file!\n");
+		return -1;
 	}
 	sprintf(temp1, "cat %s", compfilepath);
 	/* sprintf(temp1, "cat %s", filename); */
@@ -524,6 +524,7 @@ int do_put(int controlfd, int datafd, char *input){
 
 	FILE *in;
 	extern FILE *popen();
+	
 
 	write(controlfd, str, strlen(str));
 
@@ -604,7 +605,7 @@ int do_put(int controlfd, int datafd, char *input){
 
 
 int main(int argc, char **argv){
-	int server_port, controlfd, listenfd, datafd, code, n5, n6, x;
+	int server_port, controlfd, listenfd, datafds[NDATAFD], code, n5, n6, x;
     uint16_t port;
 	struct sockaddr_in servaddr, data_addr;
 	char command[1024], ip[50], str[MAXLINE+1];
@@ -704,18 +705,15 @@ int main(int argc, char **argv){
         printf("Data connection Established...\n");
 
         if(code == 1){
-            if(do_ls(controlfd, datafd, command) < 0){
-                close(datafd);
+            if(do_ls(controlfd, datafds[0], command) < 0){
                 continue;
             }
         }else if(code == 2){
-            if(do_get(controlfd, datafd, command) < 0){
-                close(datafd);
+            if(do_get(controlfd, datafds, command) < 0){
                 continue;
             }
         }else if(code == 3){
-            if(do_put(controlfd, datafd, command) < 0){
-                close(datafd);
+            if(do_put(controlfd, datafds[0], command) < 0){
                 continue;
             }
         }
