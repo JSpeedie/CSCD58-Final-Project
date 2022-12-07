@@ -1,27 +1,28 @@
-#include	<time.h>
-#include	<sys/types.h>
-#include	<sys/socket.h>
-#include	<strings.h>
-#include	<string.h>
-#include	<arpa/inet.h>
-#include	<unistd.h>
-#include	<stdio.h>
-#include	<stdlib.h>
-#include	<ctype.h>
-#include	<netinet/in.h>
-#include	<stdbool.h>
-#include	<netdb.h>
-#include	<errno.h>
-#include	<fcntl.h>
-#include	<time.h>
-#include	<netinet/tcp.h>
-#include	<sys/stat.h>
-#include	<sys/types.h>
-#include 	<dirent.h>
-
 #include "comp.h"
 #include "enc.h"
 #include "ftputil.h"
+#include "pec-ftp.h"
+
+#include <arpa/inet.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/types.h>
+#include <time.h>
+#include <time.h>
+#include <unistd.h>
+#include <dirent.h>
 
 //function trims leading and trailing whitespaces
 void trim(char *str)
@@ -256,7 +257,7 @@ int do_retr(int controlfd, int *datafds, char *input){
 	}
 	sprintf(str, "cat %s", compoutputfilepath);
 
-    int encoutputfilepathlen = strlen(filename) + encsuffix_len + 7 + 1;
+	int encoutputfilepathlen = strlen(filename) + encsuffix_len + 7 + 1;
 	char encoutputfilepath[encoutputfilepathlen];
 	bzero(encoutputfilepath, encoutputfilepathlen);
 	strncpy(&encoutputfilepath[0], filename, strlen(filename));
@@ -267,9 +268,9 @@ int do_retr(int controlfd, int *datafds, char *input){
 	close(r);
 	unlink(encoutputfilepath);
 
-    enc_file(str, encoutputfilepath, key);
+	enc_file(str, encoutputfilepath, key);
 
-    sprintf(str, "cat %s", encoutputfilepath);
+	sprintf(str, "cat %s", encoutputfilepath);
 	/* CSCD58 end of addition */
 
 	FILE *in;
@@ -295,12 +296,16 @@ int do_retr(int controlfd, int *datafds, char *input){
 	write(controlfd, sendline, strlen(sendline));
 	pclose(in);
 	/* CSCD58 addition */
-	if (0 != remove(encoutputfilepath)) {
-	    fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
-	} 
-	if (0 != remove(compoutputfilepath)) {
-	    fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
-	} 
+	if (KEEP_TEMP_ENC_FILES != 1) {
+		if (0 != remove(encoutputfilepath)) {
+			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
+		} 
+	}
+	if (KEEP_TEMP_COMP_FILES != 1) {
+		if (0 != remove(compoutputfilepath)) {
+			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
+		} 
+	}
 	/* CSCD58 end of addition */
 	return 1;
 }
@@ -386,9 +391,11 @@ int do_stor(int controlfd, int datafd, char *input){
 
 	dec_file(unencinputfilepath, unencoutputfilepath, key);
 
-	/* if (0 != remove(temp1)) { */
-	/* 	fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n"); */
-	/* } */
+	if (KEEP_TEMP_ENC_FILES != 1) {
+		if (0 != remove(temp1)) {
+			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
+		}
+	}
 	
 	/* unencoutputfilepath =  ( <filename>.comp-XXXXXX ) */
 	int uncompoutputfilepathlen = strlen(unencoutputfilepath) + 1;
@@ -401,9 +408,11 @@ int do_stor(int controlfd, int datafd, char *input){
 	if (0 != uncomp_file(unencoutputfilepath, uncompoutputfilepath)) {
 		fprintf(stderr, "ERROR: could not uncompress file!\n");
 	}
-	/* if (0 != remove(unencoutputfilepath)) { */
-	/* 	fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n"); */
-	/* } */
+	if (KEEP_TEMP_COMP_FILES != 1) {
+		if (0 != remove(unencoutputfilepath)) {
+			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
+		}
+	}
 	/* CSCD58 end of addition */
 
 	return 1;

@@ -1,6 +1,8 @@
 //myclient.c source file
 
 #include "comp.h"
+#include "enc.h"
+#include "pec-ftp.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>
@@ -20,10 +22,6 @@
 #include <unistd.h>
 #include "enc.h"
 #include "ftputil.h"
-
-char GREEN[] = { "\x1B[32m" };
-char RED[] = { "\x1B[31m" };
-char NORMAL[] = { "\x1B[0m" };
 
 //function trims leading and trailing whitespaces
 void trim(char *str)
@@ -441,9 +439,11 @@ int do_get(int controlfd, int *datafds, char *input){
 
 	dec_file(unencinputfilepath, unencoutputfilepath, key);
 
-	/* if (0 != remove(temp1)) { */
-	/* 	fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n"); */
-	/* } */
+	if (KEEP_TEMP_ENC_FILES != 1) {
+		if (0 != remove(temp1)) {
+			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
+		}
+	}
 
 	/* unencoutputfilepath =  ( <filename>.comp-XXXXXX ) */
 	int uncompoutputfilepathlen = strlen(unencoutputfilepath) + 1;
@@ -456,9 +456,11 @@ int do_get(int controlfd, int *datafds, char *input){
 	if (0 != uncomp_file(unencoutputfilepath, uncompoutputfilepath)) {
 		fprintf(stderr, "ERROR: could not uncompress file!\n");
 	}
-	/* if (0 != remove(unencoutputfilepath)) { */
-	/* 	fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n"); */
-	/* } */
+	if (KEEP_TEMP_COMP_FILES != 1) {
+		if (0 != remove(unencoutputfilepath)) {
+			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
+		}
+	}
 	/* CSCD58 end of addition */
 
 	return 1;
@@ -593,11 +595,15 @@ int do_put(int controlfd, int datafd, char *input){
 		}
 	}
 	/* CSCD58 addition */
-	if (0 != remove(compfilepath)) {
-		fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
+	if (KEEP_TEMP_COMP_FILES != 1) {
+		if (0 != remove(compfilepath)) {
+			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
+		}
 	}
-	if (0 != remove(encfilepath)) {
-		fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
+	if (KEEP_TEMP_ENC_FILES != 1) {
+		if (0 != remove(encfilepath)) {
+			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
+		}
 	}
 	/* CSCD58 end of addition */
 	return 1;
