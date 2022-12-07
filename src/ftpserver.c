@@ -323,7 +323,7 @@ int main(int argc, char **argv){
                         }
                         get_client_ip_port(recvline, client_ip, &client_port);
  
-                        int i;
+                        int i = 0;
                         while (i < NDATAFD) {
                             if((setup_data_connection(datafds + i, client_ip, client_port, port)) < 0){
                                     break;
