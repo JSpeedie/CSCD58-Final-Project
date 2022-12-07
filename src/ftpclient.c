@@ -321,7 +321,23 @@ int do_get(int controlfd, int datafd, char *input){
 	printf("File: %s\n", filename);
 
 	/* CSCD58 addition */
-	sprintf(temp1, "%s.enc", filename);
+	/* Make temporary <filename>.comp.enc-XXXXXX file for receiving the file */
+	char * encsuffix = ".enc";
+	int encsuffix_len = strlen(encsuffix);
+	char * compsuffix = ".comp";
+	int compsuffix_len = strlen(compsuffix);
+	int recvfilepathlen = strlen(filename) + compsuffix_len + encsuffix_len + 7 + 1;
+	char recvfilepath[recvfilepathlen];
+	bzero(recvfilepath, recvfilepathlen);
+	strncpy(&recvfilepath[0], filename, strlen(filename));
+	strncat(&recvfilepath[0], compsuffix, compsuffix_len + 1);
+	strncat(&recvfilepath[0], encsuffix, encsuffix_len + 1);
+	/* Generate a temp name for our compressed .comp file */
+	strncat(&recvfilepath[0], "-XXXXXX", 8);
+	int r = mkstemp(recvfilepath);
+	close(r);
+	unlink(recvfilepath);
+	sprintf(temp1, "%s", recvfilepath);
 	/* sprintf(temp1, "%s-out", filename); */
 	/* CSCD58 end of addition */
 
@@ -330,7 +346,6 @@ int do_get(int controlfd, int datafd, char *input){
 	FD_ZERO(&rdset);
 	FD_SET(controlfd, &rdset);
 	FD_SET(datafd, &rdset);
-
 
 	if(controlfd > datafd){
 		maxfdp1 = controlfd + 1;
@@ -346,10 +361,10 @@ int do_get(int controlfd, int datafd, char *input){
 
 	write(controlfd, str, strlen(str));
 
-    /* CSCD58 Addition */
-    uint32_t key[4];
-    do_dh(controlfd, datafd, key);
-    /* End CSCD58 Addition */
+	/* CSCD58 Addition */
+	uint32_t key[4];
+	do_dh(controlfd, datafd, key);
+	/* End CSCD58 Addition */
 
 	while(1){
 		if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
@@ -394,39 +409,44 @@ int do_get(int controlfd, int datafd, char *input){
 	fclose(fp);
 
 	/* CSCD58 addition */
+	/* Create 'cat <filename>.comp.enc-XXXXXX' */
 	int unencinputfilelen = strlen(temp1) + 5;
 	char unencinputfilepath[unencinputfilelen];
 	bzero(unencinputfilepath, unencinputfilelen);
 	sprintf(unencinputfilepath, "cat %s", temp1);
-    int unencoutputfilepathlen = strlen(unencinputfilepath) + 1;
+	/* temp1 = <filename>.comp.enc-XXXXXX */
+	int unencoutputfilepathlen = strlen(temp1) - 7 - encsuffix_len + 7 + 1;
 	char unencoutputfilepath[unencoutputfilepathlen];
 	bzero(unencoutputfilepath, unencoutputfilepathlen);
-	char * encsuffix = ".enc";
-	int encsuffix_len = strlen(encsuffix);
-	/* - encsuffix_len to get rid of the trailing .enc */
-	strncpy(unencoutputfilepath, temp1, strlen(temp1) - encsuffix_len);
-    strncat(unencoutputfilepath, ".pec", 5);
+	/* - 7 to get rid of the trailing temp digits ( <filename>.comp.enc ) */
+	/* - encsuffix_len to get rid of the trailing .enc ( <filename>.comp ) */
+	strncpy(unencoutputfilepath, temp1, strlen(temp1) - 7 - encsuffix_len);
+	/* Add a temp field our compressed .comp file ( <filename>.comp-XXXXXX ) */
+	strncat(&unencoutputfilepath[0], "-XXXXXX", 8);
+	r = mkstemp(unencoutputfilepath);
+	close(r);
+	unlink(unencoutputfilepath);
 
-    dec_file(unencinputfilepath, unencoutputfilepath, key);
+	dec_file(unencinputfilepath, unencoutputfilepath, key);
 
-    if (0 != remove(temp1)) {
-		fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
-	}
+	/* if (0 != remove(temp1)) { */
+	/* 	fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n"); */
+	/* } */
 
+	/* unencoutputfilepath =  ( <filename>.comp-XXXXXX ) */
 	int uncompoutputfilepathlen = strlen(unencoutputfilepath) + 1;
 	char uncompoutputfilepath[uncompoutputfilepathlen];
 	bzero(uncompoutputfilepath, uncompoutputfilepathlen);
-	char * pecsuffix = ".pec";
-	int pecsuffix_len = strlen(pecsuffix);
-	/* - pecsuffix_len to get rid of the trailing .pec */
-	strncpy(uncompoutputfilepath, unencoutputfilepath, strlen(unencoutputfilepath) - pecsuffix_len);
+	/* - 7 to get rid of the trailing temp digits ( <filename>.comp ) */
+	/* - compsuffix_len to get rid of the trailing .comp ( <filename> )*/
+	strncpy(uncompoutputfilepath, unencoutputfilepath, strlen(unencoutputfilepath) - 7 - compsuffix_len);
 
 	if (0 != uncomp_file(unencoutputfilepath, uncompoutputfilepath)) {
 		fprintf(stderr, "ERROR: could not uncompress file!\n");
 	}
-	if (0 != remove(unencoutputfilepath)) {
-		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
-	}
+	/* if (0 != remove(unencoutputfilepath)) { */
+	/* 	fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n"); */
+	/* } */
 	/* CSCD58 end of addition */
 
 	return 1;
@@ -455,21 +475,23 @@ int do_put(int controlfd, int datafd, char *input){
 
 	sprintf(str, "STOR %s", filename);
 	/* CSCD58 addition */
-	int compoutputfilepathlen = strlen(filename) + 4 + 7 + 1;
-	char compoutputfilepath[compoutputfilepathlen];
-	bzero(compoutputfilepath, compoutputfilepathlen);
-	strncpy(&compoutputfilepath[0], filename, strlen(filename));
-	strncat(&compoutputfilepath[0], ".pec", 5);
-	/* Generate a temp name for our compressed .pec file */
-	strncat(&compoutputfilepath[0], "-XXXXXX", 8);
-	int r = mkstemp(compoutputfilepath);
+	char * compsuffix = ".comp";
+	int compsuffix_len = strlen(compsuffix);
+	int compfilepathlen = strlen(filename) + compsuffix_len + 7 + 1;
+	char compfilepath[compfilepathlen];
+	bzero(compfilepath, compfilepathlen);
+	strncpy(&compfilepath[0], filename, strlen(filename));
+	strncat(&compfilepath[0], compsuffix, compsuffix_len + 1);
+	/* Generate a temp name for our compressed .comp file */
+	strncat(&compfilepath[0], "-XXXXXX", 8);
+	int r = mkstemp(compfilepath);
 	close(r);
-	unlink(compoutputfilepath);
+	unlink(compfilepath);
 
-	if (0 != comp_file(filename, compoutputfilepath)) {
+	if (0 != comp_file(filename, compfilepath)) {
 		fprintf(stderr, "ERROR: could not compress file!\n");
 	}
-	sprintf(temp1, "cat %s", compoutputfilepath);
+	sprintf(temp1, "cat %s", compfilepath);
 	/* sprintf(temp1, "cat %s", filename); */
 	/* CSCD58 end of addition */
 
@@ -480,44 +502,44 @@ int do_put(int controlfd, int datafd, char *input){
 	FD_SET(controlfd, &rdset);
 	FD_SET(datafd, &wrset);
 
-
 	if(controlfd > datafd){
 		maxfdp1 = controlfd + 1;
 	}else{
 		maxfdp1 = datafd + 1;
 	}
 
-
 	FILE *in;
 	extern FILE *popen();
-	
+
 	write(controlfd, str, strlen(str));
-	
+
 	/* CSCD58 Addition */
-    uint32_t key[4];
-    do_dh(controlfd, datafd, key);
-    
-    int encoutputfilepathlen = strlen(filename) + 4 + 7 + 1;
-	char encoutputfilepath[encoutputfilepathlen];
-	bzero(encoutputfilepath, encoutputfilepathlen);
-	strncpy(&encoutputfilepath[0], filename, strlen(filename));
-	strncat(&encoutputfilepath[0], ".enc", 5);
+	uint32_t key[4];
+	do_dh(controlfd, datafd, key);
+
+	char * encsuffix = ".enc";
+	int encsuffix_len = strlen(encsuffix);
+	int encfilepathlen = strlen(filename) + encsuffix_len + 7 + 1;
+	char encfilepath[encfilepathlen];
+	bzero(encfilepath, encfilepathlen);
+	strncpy(&encfilepath[0], filename, strlen(filename));
+	strncat(&encfilepath[0], encsuffix, encsuffix_len + 1);
 	/* Generate a temp name for our encrypted .enc file */
-	strncat(&encoutputfilepath[0], "-XXXXXX", 8);
-	r = mkstemp(encoutputfilepath);
+	strncat(&encfilepath[0], "-XXXXXX", 8);
+	r = mkstemp(encfilepath);
 	close(r);
-	unlink(encoutputfilepath);
+	unlink(encfilepath);
 
-    enc_file(temp1, encoutputfilepath, key);
+	enc_file(temp1, encfilepath, key);
 
-    sprintf(temp1, "cat %s", encoutputfilepath);
-    /* End CSCD58 Addition */
+	sprintf(temp1, "cat %s", encfilepath);
+	/* End CSCD58 Addition */
 
 	if (!(in = popen(temp1, "r"))) {
 		printf("Cannot Run Command\nExiting...\n");
 		return -1;
 	}
-	
+
 	while(1){
 		if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
 		if(data_finished == FALSE){FD_SET(datafd, &wrset);}
@@ -556,11 +578,11 @@ int do_put(int controlfd, int datafd, char *input){
 		}
 	}
 	/* CSCD58 addition */
-	if (0 != remove(compoutputfilepath)) {
-		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
+	if (0 != remove(compfilepath)) {
+		fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
 	}
-	if (0 != remove(encoutputfilepath)) {
-		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
+	if (0 != remove(encfilepath)) {
+		fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
 	}
 	/* CSCD58 end of addition */
 	return 1;
