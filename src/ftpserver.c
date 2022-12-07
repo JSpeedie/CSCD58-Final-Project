@@ -498,8 +498,6 @@ int main(int argc, char **argv){
                     char reply[1024];
                     sprintf(reply, "550 Filename Does Not Exist");
                     write(connfd, reply, strlen(reply));
-                    close_data_connections(datafds);
-                    continue;
                 }
                 i = 0;
     			close_data_connections(datafds);

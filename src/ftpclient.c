@@ -505,6 +505,12 @@ int do_put(int controlfd, int datafd, char *input){
 
 	if (0 != comp_file(filename, compfilepath)) {
 		fprintf(stderr, "ERROR: could not compress file!\n");
+		char send[1024];
+		sprintf(str, "SKIP");
+		write(controlfd, str, strlen(str));
+		bzero(send, (int)sizeof(send));
+		read(controlfd, send, 1000);
+		printf("Server Control Response: %s\n", send);
 		return -1;
 	}
 	sprintf(temp1, "cat %s", compfilepath);
@@ -712,14 +718,17 @@ int main(int argc, char **argv){
 
         if(code == 1){
             if(do_ls(controlfd, datafds[0], command) < 0){
+                close_data_connections(datafds);
                 continue;
             }
         }else if(code == 2){
             if(do_get(controlfd, datafds, command) < 0){
+                close_data_connections(datafds);
                 continue;
             }
         }else if(code == 3){
             if(do_put(controlfd, datafds[0], command) < 0){
+                close_data_connections(datafds);
                 continue;
             }
         }
