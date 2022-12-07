@@ -19,11 +19,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include "enc.h"
-
-#define 	MAXLINE 4096
-#define     LISTENQ 1024
-#define		TRUE	1
-#define		FALSE	0
+#include "ftputil.h"
 
 char GREEN[] = { "\x1B[32m" };
 char RED[] = { "\x1B[31m" };
@@ -296,12 +292,12 @@ int do_ls(int controlfd, int datafd, char *input){
     return 1;
 }
 
-int do_get(int controlfd, int datafd, char *input){
+int do_get(int controlfd, int *datafd, char *input){
 	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp, temp1[1024];
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(str, (int)sizeof(str));
-	int n = 0, p = 0;
+	int n = 0, p[NDATAFD];
 
 	fd_set rdset;
 	int maxfdp1, data_finished = FALSE, control_finished = FALSE;
@@ -345,11 +341,22 @@ int do_get(int controlfd, int datafd, char *input){
 
 	FD_ZERO(&rdset);
 	FD_SET(controlfd, &rdset);
-	FD_SET(datafd, &rdset);
+	// FD_SET(datafd, &rdset);
 
-	if(controlfd > datafd){
-		maxfdp1 = controlfd + 1;
-	}else{
+    /* CSCD58 addition */
+    int i = 0;
+    maxfdp1 = datafds[0];
+    for (i = 0; i < NDATAFD; i++) {
+        FD_SET(datafds[i], &rdset);
+        p[i] = i * MAXLINE;
+        if (datafds[i] > maxfdp1)
+            maxfdp1 = datafds[i] + 1;
+    }
+    /* End CSCD58 addition */
+
+	if(controlfd > maxfdp1){
+        maxfdp1 = controlfd + 1;
+    }else{
 		maxfdp1 = datafd + 1;
 	}
 
@@ -365,44 +372,51 @@ int do_get(int controlfd, int datafd, char *input){
 	uint32_t key[4];
 	do_dh(controlfd, datafd, key);
 	/* End CSCD58 Addition */
-
+    
+    /* CSCD58 Additon - Parallelization */
 	while(1){
-		if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
-		if(data_finished == FALSE){FD_SET(datafd, &rdset);}
-		select(maxfdp1, &rdset, NULL, NULL, NULL);
+        if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
+        //if(data_finished == FALSE){FD_SET(datafds, &rdset);}
+        if(data_finished == FALSE){FD_SETS(datafds, &rdset, NDATAFD, i);}
+        select(maxfdp1, &rdset, NULL, NULL, NULL);
 
-		if(FD_ISSET(controlfd, &rdset)){
-			bzero(recvline, (int)sizeof(recvline));
-			read(controlfd, recvline, MAXLINE);
-			printf("Server Control Response: %s\n", recvline);
-			temp = strtok(recvline, " ");
-			if(atoi(temp) != 200){
-				printf("File Error...\nExiting...\n");
-				break;
-			}
-			control_finished = TRUE;
-			bzero(recvline, (int)sizeof(recvline));
-			FD_CLR(controlfd, &rdset);
-		}
+        if(FD_ISSET(controlfd, &rdset)){
+            bzero(recvline, (int)sizeof(recvline));
+            read(controlfd, recvline, MAXLINE);
+            printf("Server Control Response: %s\n", recvline);
+            temp = strtok(recvline, " ");
+            if(atoi(temp) != 200){
+                printf("File Error...\nExiting...\n");
+                break;
+            }
+            control_finished = TRUE;
+            bzero(recvline, (int)sizeof(recvline));
+            FD_CLR(controlfd, &rdset);
+        }
 
-		if(FD_ISSET(datafd, &rdset)){
-			//printf("Server Data Response:\n");
-			bzero(recvline, (int)sizeof(recvline));
-			while((n = read(datafd, recvline, MAXLINE)) > 0){
-				fseek(fp, p, SEEK_SET);
-				fwrite(recvline, 1, n, fp);
-				p = p + n;
-				//printf("%s", recvline);
-				bzero(recvline, (int)sizeof(recvline));
-			}
-			data_finished = TRUE;
-			FD_CLR(datafd, &rdset);
-		}
-		if((control_finished == TRUE) && (data_finished == TRUE)){
-			break;
-		}
+        for (i = 0; i< NDATAFD; i++) {
+            if(FD_ISSET(datafds[i], &rdset)){
+                //printf("Server Data Response:\n");
+                bzero(recvline, (int)sizeof(recvline));
+                
+                while((n = recv(datafds[i], recvline, MAXLINE, MSG_WAITALL)) > 0) {
+                    fseek(fp, p[i], SEEK_SET);
+                    fwrite(recvline, 1, n, fp);
+                    p[i] = p[i] + NDATAFD * MAXLINE;
+                    //printf("%s", recvline); 
+                    bzero(recvline, (int)sizeof(recvline));
+                }
+                if (i == NDATAFD - 1)
+                    data_finished = TRUE;
+                FD_CLR(datafds[i], &rdset);
+            } 
+        }
+        if((control_finished == TRUE) && (data_finished == TRUE)){
+            break;
+        }
 
-	}
+    }
+    /* End CSCD58 Additoon - Parallelization */*/
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(str, (int)sizeof(str));
@@ -623,6 +637,14 @@ int main(int argc, char **argv){
     	exit(-1);
     }
 
+    /* CSCD58 Addition */
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+
+    getsockname(controlfd, (struct sockaddr*) &addr, &len);
+
+    /* End CSCD58 Addition */
+
     //set up data connection------------------------------------------------------
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -670,7 +692,14 @@ int main(int argc, char **argv){
 
         write(controlfd, str, strlen(str));
         bzero(str, (int)sizeof(str));
-        datafd = accept(listenfd, (struct sockaddr*)NULL, NULL);
+        
+        /* CSCD58 Addition */
+        int i = 0;
+        for (i = 0; i < NDATAFD; i++) {
+            datafds[i] = accept(listenfd, (struct sockaddr*)NULL, NULL);
+            //printf("%d-th data connection established\n", i);
+        }
+        /* End CSCD58 Addition */
 
         printf("Data connection Established...\n");
 
@@ -690,7 +719,9 @@ int main(int argc, char **argv){
                 continue;
             }
         }
-        close(datafd);
+        /* CSCD58 Addition */
+        close_data_connections(datafds);
+        /* End CSCD58 Addition */
     }
     close(controlfd);
 	return TRUE;

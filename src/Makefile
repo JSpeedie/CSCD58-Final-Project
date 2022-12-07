@@ -5,10 +5,12 @@ COMPRESSDEP = Alloc.c CpuArch.c LzFind.c LzFindMt.c LzFindOpt.c \
 
 ENCRYPTDEP = enc.c aes.c
 
-make: ftpclient.c ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) | bin
-	gcc -pthread -g -Wall ftpclient.c $(COMPRESSDEP) $(ENCRYPTDEP) -o ftpclient
+PARDEP = ftputil.c
+
+make: ftpclient.c ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) | bin
+	gcc -pthread -g -Wall ftpclient.c $(COMPRESSDEP) $(ENCRYPTDEP) ($PARDEP) -o ftpclient
 	mv ftpclient ../bin/ftpclient/
-	gcc -g -Wall ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) -o ftpserver
+	gcc -g -Wall ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) ($PARDEP) -o ftpserver
 	mv ftpserver ../bin/ftpserver/
 
 bin:

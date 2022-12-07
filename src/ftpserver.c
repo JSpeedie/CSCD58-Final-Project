@@ -21,13 +21,7 @@
 
 #include "comp.h"
 #include "enc.h"
-
-#define 	MAXLINE 	4096
-#define		LISTENQ		1024
-#define		TRUE		1
-#define		FALSE		0
-
-
+#include "ftputil.h"
 
 //function trims leading and trailing whitespaces
 void trim(char *str)
@@ -75,27 +69,27 @@ int get_client_ip_port(char *str, char *client_ip, int *client_port){
 
 int setup_data_connection(int *fd, char *client_ip, int client_port, int server_port){
 	
-	struct sockaddr_in cliaddr, tempaddr;
+    struct sockaddr_in cliaddr, tempaddr;
 
-	if ( (*fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+    if ( (*fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
     	perror("socket error");
     	return -1;
     }
 
-	//bind port for data connection to be server port - 1 by using a temporary struct sockaddr_in
-	bzero(&tempaddr, sizeof(tempaddr));
+    //bind port for data connection to be server port - 1 by using a temporary struct sockaddr_in
+    bzero(&tempaddr, sizeof(tempaddr));
     tempaddr.sin_family = AF_INET;
     tempaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     tempaddr.sin_port   = htons(server_port-1);
 
     while((bind(*fd, (struct sockaddr*) &tempaddr, sizeof(tempaddr))) < 0){
     	//perror("bind error");
-    	server_port--;
+        server_port--;
     	tempaddr.sin_port   = htons(server_port);
     }
 
 
-	//initiate data connection fd with client ip and client port             
+    //initiate data connection fd with client ip and client port             
     bzero(&cliaddr, sizeof(cliaddr));
     cliaddr.sin_family = AF_INET;
     cliaddr.sin_port   = htons(client_port);
@@ -217,7 +211,7 @@ int do_list(int controlfd, int datafd, char *input){
     return 1;
 }
 
-int do_retr(int controlfd, int datafd, char *input){
+int do_retr(int controlfd, int *datafd, char *input){
 	char filename[1024], sendline[MAXLINE+1], str[MAXLINE+1];
 	bzero(filename, (int)sizeof(filename));
 	bzero(sendline, (int)sizeof(sendline));
@@ -289,9 +283,11 @@ int do_retr(int controlfd, int datafd, char *input){
 
 	/* CSCD58 addition */
 	size_t nmem_read = 0;
+    int i = 0;
 	while (0 != (nmem_read = fread(sendline, 1, sizeof(sendline), in)) ) {
-		write(datafd, sendline, nmem_read);
+		write(datafd[i], sendline, nmem_read); // TODO: Parallelize
 		bzero(sendline, (size_t)sizeof(sendline));
+        i = (i + 1 ) %  NDATAFD;
 	}
 	/* CSCD58 end of addition */
 
@@ -468,9 +464,13 @@ int main(int argc, char **argv){
                 }
     			get_client_ip_port(recvline, client_ip, &client_port);
 
-    			if((setup_data_connection(&datafd, client_ip, client_port, port)) < 0){
-    				break;
-    			}
+    			int i;
+                while (i < NDATAFD) {
+                    if((setup_data_connection(datafds + i, client_ip, client_port, port)) < 0){
+                            break;
+                    }
+                    i++;
+                }
 
     			if((x = read(connfd, command, MAXLINE)) < 0){
     				break;
@@ -489,11 +489,11 @@ int main(int argc, char **argv){
                     char reply[1024];
                     sprintf(reply, "550 Filename Does Not Exist");
                     write(connfd, reply, strlen(reply));
-                    close(datafd);
+                    close_data_connections(datafds);
                     continue;
                 }
-
-    			close(datafd);
+                i = 0;
+    			close_data_connections(datafds);
 			}
     		printf("Exiting Child Process...\n");
     		close(connfd);
