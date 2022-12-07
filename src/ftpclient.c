@@ -295,7 +295,10 @@ int do_get(int controlfd, int *datafds, char *input){
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(str, (int)sizeof(str));
-	int n = 0, p[NDATAFD];
+	int n = 0;
+	uint32_t p[NDATAFD];
+	uint16_t rem[NDATAFD];
+	uint8_t closed[NDATAFD];
 
 	fd_set rdset;
 	int maxfdp1, data_finished = FALSE, control_finished = FALSE;
@@ -346,7 +349,9 @@ int do_get(int controlfd, int *datafds, char *input){
     maxfdp1 = datafds[0];
     for (i = 0; i < NDATAFD; i++) {
         FD_SET(datafds[i], &rdset);
-        p[i] = i * MAXLINE;
+        p[i] = 0;
+        rem[i] = 0;
+        closed[i] = 0;
         if (datafds[i] > maxfdp1)
             maxfdp1 = datafds[i] + 1;
     }
@@ -368,6 +373,9 @@ int do_get(int controlfd, int *datafds, char *input){
 	uint32_t key[4];
 	do_dh(controlfd, datafds[0], key);
 	/* End CSCD58 Addition */
+	
+	int j = 0;
+	int err = 0;
     
     /* CSCD58 Additon - Parallelization */
 	while(1){
@@ -382,6 +390,7 @@ int do_get(int controlfd, int *datafds, char *input){
             printf("Server Control Response: %s\n", recvline);
             temp = strtok(recvline, " ");
             if(atoi(temp) != 200){
+                err = 1;
                 printf("File Error...\nExiting...\n");
                 break;
             }
@@ -392,17 +401,38 @@ int do_get(int controlfd, int *datafds, char *input){
 
         for (i = 0; i< NDATAFD; i++) {
             if(FD_ISSET(datafds[i], &rdset)){
-                //printf("Server Data Response:\n");
                 bzero(recvline, (int)sizeof(recvline));
                 
-                while((n = recv(datafds[i], recvline, MAXLINE, MSG_WAITALL)) > 0) {
+                if((n = recv(datafds[i], recvline, MAXLINE, MSG_PEEK)) > 0) {
+                    if (n < 6) {
+                        continue;
+                    } else {
+                        if (rem[i] > 0 && rem[i] < n) {
+                            n = read(datafds[i], recvline, rem[i]);
+                        } else {
+                            n = read(datafds[i], recvline, n);
+                        }
+                    }
+                    
+                    int off = 0;
+                    if (rem[i] == 0) {
+                        memcpy(p + i, recvline, 4);
+                        memcpy(rem + i, recvline + 4, 2);
+                        off += 6;
+                    }
                     fseek(fp, p[i], SEEK_SET);
-                    fwrite(recvline, 1, n, fp);
-                    p[i] = p[i] + NDATAFD * MAXLINE;
+                    fwrite(recvline + off, 1, n - off, fp);
+                    rem[i] = rem[i] - (n - off);
+                    p[i] = p[i] + (n - off);
                     //printf("%s", recvline); 
                     bzero(recvline, (int)sizeof(recvline));
+                } else {
+                    if (!closed[i]) {
+                        j++;
+                        closed[i] = 1;
+                    }
                 }
-                if (i == NDATAFD - 1)
+                if (j >= NDATAFD)
                     data_finished = TRUE;
                 FD_CLR(datafds[i], &rdset);
             } 
@@ -417,6 +447,13 @@ int do_get(int controlfd, int *datafds, char *input){
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(str, (int)sizeof(str));
 	fclose(fp);
+	
+	if (err) {
+	    if (0 != remove(temp1)) {
+			fprintf(stderr, "WARNING: could not remove temporary file following an error!\n");
+		}
+		return -1;
+	}
 
 	/* CSCD58 addition */
 	/* Create 'cat <filename>.comp.enc-XXXXXX' */

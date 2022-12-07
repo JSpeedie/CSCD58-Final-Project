@@ -217,6 +217,8 @@ int do_retr(int controlfd, int *datafds, char *input){
 	bzero(filename, (int)sizeof(filename));
 	bzero(sendline, (int)sizeof(sendline));
 	bzero(str, (int)sizeof(str));
+    fd_set wtset;
+    int maxfdp1;
 
     uint32_t key[4];
     do_dh(controlfd, datafds[0], key);
@@ -281,14 +283,45 @@ int do_retr(int controlfd, int *datafds, char *input){
 		write(controlfd, sendline, strlen(sendline));
 		return -1;
 	}
+	
+	maxfdp1 = datafds[0];
+        for (int i = 0; i < NDATAFD; i++) {
+            if (datafds[i] > maxfdp1)
+                maxfdp1 = datafds[i] + 1;
+        }
 
 	/* CSCD58 addition */
-	size_t nmem_read = 0;
-    int i = 0;
-	while (0 != (nmem_read = fread(sendline, 1, sizeof(sendline), in)) ) {
-		write(datafds[i], sendline, nmem_read); // TODO: Parallelize
+	uint16_t nmem_read = 0;
+	int j = 0;
+	uint32_t cur_pos = 0;
+	
+	while (0 != (nmem_read = fread((sendline + 6), 1, MAXLINE - 6, in)) ) {
+	FD_SETS(datafds, &wtset, NDATAFD, j);
+	select(maxfdp1, NULL, &wtset, NULL, NULL);
+	
+	for (int i = 0; i< NDATAFD; i++) {
+            if(FD_ISSET(datafds[i], &wtset)){
+                uint16_t to_write = nmem_read;
+                memcpy(sendline, &cur_pos, 4);
+                memcpy((sendline + 4), &nmem_read, 2);
+                to_write += 6;
+                size_t written = 0;
+                
+                while(written < to_write) {
+                    size_t written_t = write(datafds[i], sendline + written, to_write - written); // TODO: Parallelize
+                   
+                   if (written_t < 0) {
+                       break;
+                   } else {
+                       written += written_t;
+                   }
+                }
 		bzero(sendline, (size_t)sizeof(sendline));
-        i = (i + 1 ) %  NDATAFD;
+		break;
+            }
+        }
+        
+        cur_pos += nmem_read;
 	}
 	/* CSCD58 end of addition */
 
