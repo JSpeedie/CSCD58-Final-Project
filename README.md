@@ -191,6 +191,13 @@ third party libraries (e.g. libuv and libev) for implementing parallelized file
 transfers. Evaluated the different options to determine what works best with
 the chosen codebase.
 
+For the parallelization, we opted for a simplistic approach of distributing file chunks
+across a set of data connections by cycling through each associated file descriptor.
+The aim is to keep much of the FTP control logic the same.
+
+Jacky was also responsible for cleaning up the build process and code, as well as 
+preparing the video demo of pec-ftp in action.
+
 
 # How to run and test
 
