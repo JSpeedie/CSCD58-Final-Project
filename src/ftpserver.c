@@ -246,9 +246,9 @@ int do_retr(int controlfd, int datafd, char *input){
 	char compoutputfilepath[compoutputfilepathlen];
 	bzero(compoutputfilepath, compoutputfilepathlen);
 	strncpy(&compoutputfilepath[0], filename, strlen(filename));
-	strncat(&compoutputfilepath[0], ".pec", 4);
+	strncat(&compoutputfilepath[0], ".pec", 5);
 	/* Generate a temp name for our compressed .pec file */
-	strncat(&compoutputfilepath[0], "-XXXXXX", 7);
+	strncat(&compoutputfilepath[0], "-XXXXXX", 8);
 	int r = mkstemp(compoutputfilepath);
 	close(r);
 	unlink(compoutputfilepath);
@@ -262,9 +262,9 @@ int do_retr(int controlfd, int datafd, char *input){
 	char encoutputfilepath[encoutputfilepathlen];
 	bzero(encoutputfilepath, encoutputfilepathlen);
 	strncpy(&encoutputfilepath[0], filename, strlen(filename));
-	strncat(&encoutputfilepath[0], ".enc", 4);
+	strncat(&encoutputfilepath[0], ".enc", 5);
 	/* Generate a temp name for our encrypted .enc file */
-	strncat(&encoutputfilepath[0], "-XXXXXX", 7);
+	strncat(&encoutputfilepath[0], "-XXXXXX", 8);
 	r = mkstemp(encoutputfilepath);
 	close(r);
 	unlink(encoutputfilepath);
@@ -295,9 +295,12 @@ int do_retr(int controlfd, int datafd, char *input){
 	write(controlfd, sendline, strlen(sendline));
 	pclose(in);
 	/* CSCD58 addition */
-	/* if (0 != remove(compoutputfilepath)) { */
-	/* 	fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n"); */
-	/* } */
+	if (0 != remove(encoutputfilepath)) {
+	    fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
+	} 
+	if (0 != remove(compoutputfilepath)) {
+	    fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
+	} 
 	/* CSCD58 end of addition */
 	return 1;
 }
@@ -310,6 +313,9 @@ int do_stor(int controlfd, int datafd, char *input){
 	bzero(str, (int)sizeof(str));
 
 	int n = 0, p = 0;
+	
+	uint32_t key[4];
+    do_dh(controlfd, datafd, key);
 
 	if(get_filename(input, filename) > 0){
 		sprintf(str, "%s", filename);
@@ -321,7 +327,7 @@ int do_stor(int controlfd, int datafd, char *input){
 	}
 
 	/* CSCD58 addition */
-	sprintf(temp1, "%s.pec", filename);
+	sprintf(temp1, "%s.enc", filename);
 	/* sprintf(temp1, "%s-out", filename); */
 	/* CSCD58 end of addition */
 
@@ -344,20 +350,39 @@ int do_stor(int controlfd, int datafd, char *input){
 	fclose(fp);
 
 	/* CSCD58 addition */
-	int uncompoutputfilepathlen = strlen(temp1) + 1;
+	int unencinputfilelen = strlen(temp1) + 5;
+	char unencinputfilepath[unencinputfilelen];
+	bzero(unencinputfilepath, unencinputfilelen);
+	sprintf(unencinputfilepath, "cat %s", temp1);
+    int unencoutputfilepathlen = strlen(unencinputfilepath) + 1;
+	char unencoutputfilepath[unencoutputfilepathlen];
+	bzero(unencoutputfilepath, unencoutputfilepathlen);
+	char * encsuffix = ".enc";
+	int encsuffix_len = strlen(encsuffix);
+	/* - encsuffix_len to get rid of the trailing .enc */
+	strncpy(unencoutputfilepath, temp1, strlen(temp1) - encsuffix_len);
+    strncat(unencoutputfilepath, ".pec", 5);
+
+    dec_file(unencinputfilepath, unencoutputfilepath, key);
+
+    if (0 != remove(temp1)) {
+		fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
+	}
+	
+	int uncompoutputfilepathlen = strlen(unencoutputfilepath) + 1;
 	char uncompoutputfilepath[uncompoutputfilepathlen];
 	bzero(uncompoutputfilepath, uncompoutputfilepathlen);
 	char * pecsuffix = ".pec";
 	int pecsuffix_len = strlen(pecsuffix);
 	/* - pecsuffix_len to get rid of the trailing .pec */
-	strncpy(uncompoutputfilepath, temp1, strlen(temp1) - pecsuffix_len);
+	strncpy(uncompoutputfilepath, unencoutputfilepath, strlen(temp1) - pecsuffix_len);
 
-	if (0 != uncomp_file(temp1, uncompoutputfilepath)) {
+	if (0 != uncomp_file(unencoutputfilepath, uncompoutputfilepath)) {
 		fprintf(stderr, "ERROR: could not uncompress file!\n");
 	}
-	/* if (0 != remove(temp1)) { */
-	/* 	fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n"); */
-	/* } */
+	if (0 != remove(unencoutputfilepath)) {
+		fprintf(stderr, "WARNING: could not remove temporary compressed .pec file!\n");
+	}
 	/* CSCD58 end of addition */
 
 	return 1;

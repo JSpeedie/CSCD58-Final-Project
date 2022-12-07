@@ -60,7 +60,7 @@ int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
     extern FILE *popen();
     size_t read_len;
     char readbuf[READSIZE+1];
-    char writebuf[READSIZE+1];
+    char writebuf[READSIZE+17];
     uint8_t text[16];
     uint8_t rkeys[11][16];
     uint8_t sbox[256];
@@ -92,16 +92,21 @@ int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
         if (read_len < READSIZE) {
             if (read_len % 16 != 0) {
                 memcpy(text, &(readbuf[i]), (read_len % 16));
+                
+                int padnum = 16 - (read_len % 16);
                 for (int j = (read_len % 16); j < 16; j++) {
-                    text[i] = 16 - (read_len % 16);
+                    text[j] = padnum;
                     read_len++;
                 }
+                
                 padded = 1;
+                to_column_order(text);
                 encrypt(text, rkeys, sbox);
                 memcpy(&(writebuf[i]), text, 16);
             }
             fseek(fp, p, SEEK_SET);
-            fwrite(writebuf, 1, i, fp);
+            fwrite(writebuf, 1, read_len, fp);
+            p = p + read_len;
             break; /* If this condition is met, either an error occured or we have reached EOF. Break for safety. */
         } else {
             fseek(fp, p, SEEK_SET);
@@ -112,7 +117,7 @@ int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
     
     if (!padded) {
     	for (int j = 0; j < 16; j++) {
-            text[i] = 16;
+            text[j] = 16;
         }
         
         encrypt(text, rkeys, sbox);
@@ -131,6 +136,7 @@ int dec_file(char in_name[], char out_name[], uint32_t key[4]) {
     FILE *fp;
     extern FILE *popen();
     size_t read_len;
+    size_t read_len_prev;
     char readbuf[READSIZE+1];
     char writebuf[READSIZE+1];
     uint8_t sbox[256];
@@ -155,11 +161,10 @@ int dec_file(char in_name[], char out_name[], uint32_t key[4]) {
     expkey(rkeys, key, sbox);
     
     while (0 != (read_len = fread(readbuf, 1, READSIZE, in)) ) {
-        
         if (!first) {
             fseek(fp, p, SEEK_SET);
-            fwrite(writebuf, 1, read_len, fp);
-            p = p + read_len;
+            fwrite(writebuf, 1, read_len_prev, fp);
+            p = p + read_len_prev;
         } else {
             first = 0;
         }
@@ -174,18 +179,20 @@ int dec_file(char in_name[], char out_name[], uint32_t key[4]) {
         if (read_len < READSIZE) {
             if (read_len % 16 == 0) {
                 int padnum = writebuf[i - 1];
-                fwrite(writebuf, 1, read_len, fp);
+                fwrite(writebuf, 1, read_len - padnum, fp);
                 padrm = 1;
                 break;
             } else {
                 return -1; /* Input should always be a multiple of the block size. */
             }
         }
+        
+        read_len_prev = read_len;
     }
     
     if (!padrm) {
     	int padnum = writebuf[i - 1];
-        fwrite(writebuf, 1, read_len, fp);
+        fwrite(writebuf, 1, read_len - padnum, fp);
     }
     
     pclose(in);
