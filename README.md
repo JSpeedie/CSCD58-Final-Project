@@ -60,7 +60,7 @@ files), but they do so for the benefit of the network.
 ## Julian Speedie (speedie1, 1001712952)
 Julian made the small fixes to the original FTP client/server program pair to
 get it to work with all types of files, and worked on the compression part of
-the project. Most of that work can be found in `pec-ftp.c`, `pec-ftp.h`, and
+the project. Most of that work can be found in `comp.c`, `comp.h`, and
 the compression related changes made in `do_put()`, `do_get()` of `src/ftpclient.c`
 and in `do_retr()`, `do_stor()` of `src/ftpserver.c`.
 
@@ -128,7 +128,7 @@ put). Once you've done that (which you can do while the client and server are
 running), go to your terminal that is running `ftpclient` and begin any of the
 following tests:
 
-## 1. Client GET
+## 1. Client GET/Server RETR
 1. From your ftpclient terminal, type `ls` at the prompt and hit enter to see
    what files the server has.
 2. To retrieve a file from the server, type `get <filename>` and wait to
@@ -136,7 +136,7 @@ following tests:
 3. It should appear (byte for byte identical to the original on the server, in
    content and name) in your `basic-FTP-Client-Server/bin/ftpclient` directory!
 
-## 2. Client PUT
+## 2. Client PUT/Server STOR
 1. If you are running the ftpclient, press Ctrl+C to kill the process. From
    your `basic-FTP-Client-Server/bin/ftpclient` directory, run the shell
    command `ls` to see what files your client has access to. Then startup the
