@@ -21,6 +21,9 @@ project depends on was provided by this public domain SDK. To make it clear,
 any .c or .h file that is not `ftpclient.c` or `ftpserver.c` came from this SDK,
 and was not touched in anyway by us.
 ## 3. Us! The CSCD58 students who worked on this project!
+## Other Contributors
+Several minor contributions came from Wikipedia. Specifically, the `ROTC` definition, 
+as well as the `initialize_aes_sbox()` and `g_mul()` functions, all in `aes.c`.
 
 
 # Description, Explanation, Goals
@@ -84,7 +87,41 @@ space to uncompress than it is to allocate more than be needed and resizing
 later.
 
 ## Dawson Brown (browndaw, 1005392932)
-Dawson worked on the encryption part of the project.
+Dawson worked on the encryption portion of the project. Work can be found in the files `enc.c`, `enc.h`, `aes.c`, and `aes.h`.
+Specifically, `aes.c` includes an implementation of Rjindael encryption (see https://en.wikipedia.org/wiki/Advanced_Encryption_Standard)
+with a 128-bit key, using ECB mode. `enc.c` includes methods for encrypting and decrypting files using the aes 
+code, as well as an implementation of the square and multiply algorithm for calculating the power of large values mod n.
+
+When performing the put or get operations, the client and server first intialize a key exchange using
+the diffie-hellman algorithm. This takes place in 4 stages, each stage exchanging a random 32-bit integer, resulting in
+four 32-bit integers which are passed into the encryption and decryption functions as a key. A unique
+key is generated for every file exchange. This is done using a hard-coded prime 2^32 - 99, and a hard-coded
+generator 5.
+
+Once the keys are exchanged, and after the file is compressed, the sender encrypts the file using the previously mentioned code
+and saves it into a temp file. The temp file is transmitted to the receiver, then deleted. On the receiving end, the entire
+transmission is saved into a temp file, decrypted into a second temp file, then decompressed to produce the final result. Temp files
+were used to avoid concerns with reading from sockets - namely, since it is not guarenteed that the amount of data read is
+equal to the amount of data sent, if the data was encrypted during sending, then decrypted on arrival, there is no guarentee that
+the received data would be a multiple of the block size. Attempting to decrypt this would result in undefined behaviour for
+the last block, and leave artifacts throughout the file.
+
+To ensure the transmitted file is not a multiple of the block size (16 bytes), the end of the file is buffered with up to 16 bytes,
+where the data is equal to the number of buffer bytes (i.e. if a file were 19 bytes, a 13 byte buffer would be used where each
+byte has value 13). If the file is already a multiple of the block size, it is buffered with 16 bytes regardless. This means
+the receiver can remove the buffere data simply by removing a number of characters equal to the value of the last byte of data.
+
+DISCLAIMER: Since this is a minimal implementation, it carries many security concerns. First,
+Electronic Code Book (ECB) mode encrypts each 16 byte block independently of the others, using the same key. This means
+patterns in the data are preserved, and identical blocks will be encrypted identically, making it very vulnerable to
+cryptanalysis (For more information, see https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#Electronic_codebook_(ECB)).
+For more secure encryption, a different mode (such as Cypher Block Chaining, which modifies each block based on the previous one)
+would have to be used. Additonally, the Diffie-Hellman private keys are generated using the built in C rand() function seeded with
+the system time. The built in rand() implementation produces correlated numbers with a short period, which can lead to vulnerabilities.
+Cryptographically secure random number generators are available, and would be far more secure. Finally, there are many side
+channel attacks (see https://en.wikipedia.org/wiki/Side-channel_attack) which this implementation does not defend against.
+While the implementation is ultimately suitable for our needs and does provide a level of encryption, it should not be considered
+secure in any production environment.
 
 ## Jacky Fong (fongkwan, 991686118)
 Jacky worked on the parallelization part of the project. Explored several different
@@ -149,9 +186,6 @@ following tests:
    `ls` in step 1) and wait to receive the file.
 4. It should appear (byte for byte identical to the original on the server, in
    content and name) in your `basic-FTP-Client-Server/bin/ftpclient` directory!
-
-## TODO: show encryption? show parallelization? show compression? how? through wireshark?
-
 
 
 # Client Interface Commands
