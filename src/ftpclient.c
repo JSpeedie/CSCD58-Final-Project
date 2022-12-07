@@ -486,7 +486,7 @@ int do_put(int controlfd, int datafd, char *input){
 		printf("Server Control Response: %s\n", send);
 		return -1;
 	}
-	
+
 	sprintf(str, "STOR %s", filename);
 
 	/* CSCD58 addition */
@@ -526,7 +526,6 @@ int do_put(int controlfd, int datafd, char *input){
 
 	FILE *in;
 	extern FILE *popen();
-	
 
 	write(controlfd, str, strlen(str));
 
@@ -536,10 +535,10 @@ int do_put(int controlfd, int datafd, char *input){
 
 	char * encsuffix = ".enc";
 	int encsuffix_len = strlen(encsuffix);
-	int encfilepathlen = strlen(filename) + encsuffix_len + 7 + 1;
+	int encfilepathlen = strlen(compfilepath) + encsuffix_len + 7 + 1;
 	char encfilepath[encfilepathlen];
 	bzero(encfilepath, encfilepathlen);
-	strncpy(&encfilepath[0], filename, strlen(filename));
+	strncpy(&encfilepath[0], compfilepath, strlen(compfilepath) - 7);
 	strncat(&encfilepath[0], encsuffix, encsuffix_len + 1);
 	/* Generate a temp name for our encrypted .enc file */
 	strncat(&encfilepath[0], "-XXXXXX", 8);
