@@ -259,10 +259,11 @@ int do_retr(int controlfd, int *datafds, char *input){
 	}
 	sprintf(str, "cat %s", compoutputfilepath);
 
-	int encoutputfilepathlen = strlen(filename) + encsuffix_len + 7 + 1;
+	int encoutputfilepathlen = strlen(filename) + compsuffix_len + encsuffix_len + 7 + 1;
 	char encoutputfilepath[encoutputfilepathlen];
 	bzero(encoutputfilepath, encoutputfilepathlen);
 	strncpy(&encoutputfilepath[0], filename, strlen(filename));
+	strncat(&encoutputfilepath[0], compsuffix, compsuffix_len + 1);
 	strncat(&encoutputfilepath[0], encsuffix, encsuffix_len + 1);
 	/* Generate a temp name for our encrypted .enc file */
 	strncat(&encoutputfilepath[0], "-XXXXXX", 8);
@@ -351,7 +352,7 @@ int do_stor(int controlfd, int datafd, char *input){
 	bzero(str, (int)sizeof(str));
 
 	int n = 0, p = 0;
-	
+
 	uint32_t key[4];
 	do_dh(controlfd, datafd, key);
 
@@ -395,8 +396,8 @@ int do_stor(int controlfd, int datafd, char *input){
 		fseek(fp, p, SEEK_SET);
 		fwrite(recvline, 1, n, fp);
 		p = p + n;
-		//printf("%s", recvline); 
-		bzero(recvline, (int)sizeof(recvline)); 
+		//printf("%s", recvline);
+		bzero(recvline, (int)sizeof(recvline));
 	}
 
 	sprintf(sendline, "200 Command OK");

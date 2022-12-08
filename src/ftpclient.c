@@ -109,7 +109,7 @@ int get_command(char *command){
             bzero(command, (int)sizeof(command));
             continue;
         }
-        
+
         trim(command);
         strcpy(copy, command);
 
@@ -119,8 +119,8 @@ int get_command(char *command){
             	bzero(copy, (int)sizeof(copy));
             	continue;
         }
-    	
-    	
+
+
     	char delimit[]=" \t\r\n\v\f";
     	str = strtok(copy, delimit);
     	if((strcmp(str, "ls") == 0) || (strcmp(str, "get") == 0) || (strcmp(str, "put") == 0) || (strcmp(str, "quit") == 0)){
@@ -527,13 +527,16 @@ int do_put(int controlfd, int datafd, char *input){
 	sprintf(str, "STOR %s", filename);
 
 	/* CSCD58 addition */
+	char * encsuffix = ".enc";
+	int encsuffix_len = strlen(encsuffix);
 	char * compsuffix = ".comp";
 	int compsuffix_len = strlen(compsuffix);
-	int compfilepathlen = strlen(filename) + compsuffix_len + 7 + 1;
+	int compfilepathlen = strlen(filename) + compsuffix_len + encsuffix_len + 7 + 1;
 	char compfilepath[compfilepathlen];
 	bzero(compfilepath, compfilepathlen);
 	strncpy(&compfilepath[0], filename, strlen(filename));
 	strncat(&compfilepath[0], compsuffix, compsuffix_len + 1);
+	strncat(&compfilepath[0], encsuffix, encsuffix_len + 1);
 	/* Generate a temp name for our compressed .comp file */
 	strncat(&compfilepath[0], "-XXXXXX", 8);
 	int r = mkstemp(compfilepath);
@@ -576,8 +579,6 @@ int do_put(int controlfd, int datafd, char *input){
 	uint32_t key[4];
 	do_dh(controlfd, datafd, key);
 
-	char * encsuffix = ".enc";
-	int encsuffix_len = strlen(encsuffix);
 	int encfilepathlen = strlen(compfilepath) + encsuffix_len + 7 + 1;
 	char encfilepath[encfilepathlen];
 	bzero(encfilepath, encfilepathlen);
