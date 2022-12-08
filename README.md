@@ -20,7 +20,53 @@ Lempel-Ziv-Markov chain algorithm, and the C implementation of it that our
 project depends on was provided by this public domain SDK. To make it clear,
 any .c or .h file that is not `ftpclient.c` or `ftpserver.c` came from this SDK,
 and was not touched in anyway by us.
+
+The following files come from the 7-Zip LZMA SDK and were not touched by us in
+anyway:
+```
+7zTypes.h
+Alloc.c
+Alloc.h
+Compiler.h
+CpuArch.c
+CpuArch.h
+LzFind.c
+LzFind.h
+LzFindMt.c
+LzFindMt.h
+LzFindOpt.c
+LzHash.h
+LzmaDec.c
+LzmaDec.h
+LzmaEnc.c
+LzmaEnc.h
+LzmaLib.c
+LzmaLib.h
+Precomp.h
+Threads.c
+Threads.h
+```
+
 ## 3. Us! The CSCD58 students who worked on this project!
+Collectively we made the following files:
+```
+aes.c
+aes.h
+comp.c
+comp.h
+enc.c
+enc.h
+ftputil.c
+ftputil.h
+pec-ftp.h
+```
+And made important modifications to the remaining files:
+```
+ftpclient.c
+ftpserver.c
+Makefile
+```
+
 ## Other Contributors
 Several minor contributions came from Wikipedia. Specifically, the `ROTC` definition, 
 as well as the `initialize_aes_sbox()` and `g_mul()` functions, all in `aes.c`.
