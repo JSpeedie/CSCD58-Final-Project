@@ -154,7 +154,7 @@ In those cases, it's better to send the original data than data that not only
 takes more space but must also be uncompressed upon receiving it. Secondly,
 it's more efficient to send the size of the uncompressed data chunk (a number
 we know from when we compressed the data chunk) and allocate precisely enough
-space to uncompress than it is to allocate more than be needed and resizing
+space to uncompress than it is to allocate more than is needed and resizing
 later.
 
 The main takeaway I have after implementing compression like this is the
@@ -289,11 +289,8 @@ commands on the server side, but you will see some output that might be helpful.
 ### Client Interface Commands
 
 - ls, lists the current directory
-- get <filename>, gets the file from server to client. The file obtained will
-  have and appended format of “-out” at the end of the original filename.
-- put <filename>, puts the files from the client to the server. The file
-  transferred to the server will have an appended format of “-out”, similar to
-  get.
+- get <filename>, gets the file from server to client.
+- put <filename>, puts the files from the client to the server.
 - quit, exits the client program
 
 ## Tests

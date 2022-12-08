@@ -17,6 +17,6 @@ bin:
 	mkdir -p ../bin
 	mkdir -p ../bin/ftpclient/
 	mkdir -p ../bin/ftpserver/
-	
+
 clean:
 	rm ../bin/ftpclient ../bin/ftpserver

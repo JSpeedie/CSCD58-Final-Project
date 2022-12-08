@@ -1,8 +1,8 @@
-#define 	MAXLINE 4096
-#define         LISTENQ 1024
-#define         NDATAFD 4
-#define		TRUE	1
-#define		FALSE	0
+#define MAXLINE 4096
+#define LISTENQ 1024
+#define NDATAFD 4
+#define TRUE 1
+#define FALSE 0
 
 #define FD_SETS(fds, rdset, n, i)\
   do {\
