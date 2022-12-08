@@ -111,13 +111,13 @@ we know from when we compressed the data chunk) and allocate precisely enough
 space to uncompress than it is to allocate more than be needed and resizing
 later.
 
-The first thing I took away after implementing compression like this is the
+The main takeaway I have after implementing compression like this is the
 question of whether or not compression should be implemented at the application
-layer. For one, maybe we should save the compressed instead of compressing with
-each request so that we don't incur needless repeated compression, a process
-that is costly in terms of time and cpu usage. Problems arise there however as
-the server then has to have some way to be sure that its collection of
-associated compressed files are indeed compressed versions of the original
+layer. For one, maybe we should save the compressed file instead of compressing
+with each request so that we don't incur needless repeated compression, a
+process that is costly in terms of time and cpu usage. Problems arise there
+however as the server then has to have some way to be sure that its collection
+of associated compressed files are indeed compressed versions of the original
 files. What if someone deletes the original file, or changes it, when will the
 compressed version be updated? Solutions exist to all these potential problems,
 but we could not make such a system due to time limitations. The second problem
@@ -125,9 +125,8 @@ with implementing compression at the application layer is that it costs the
 sender a lot of time and cpu usage (as well as the receiver who has to
 uncompress at the end) and doesn't save much (comparatively) for the network.
 Big files that can benefit a lot from compression could easily take many times
-longer to compress than they wouldn't taken to send over the network. And
-that's not even counting the time it would take to decompress them too. Not to
-mention encrypting/decrypting those enormous files too.
+longer to compress than they would've taken to send over the network. And
+that's not even counting the time it would take to decompress them.
 
 
 ## Dawson Brown (browndaw, 1005392932)
