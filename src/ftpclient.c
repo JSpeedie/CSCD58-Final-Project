@@ -17,40 +17,8 @@
 
 #include "comp.h"
 #include "enc.h"
-#include "pec-ftp.h"
-#include "enc.h"
 #include "ftputil.h"
-
-
-/** Takes a string and modifies it such that there is no leading or trailing
- * whitespace.
- *
- * \param '*str' the input string which will be modified.
- * \return void.
- */
-void trim(char *str) {
-	int i;
-	int len = strlen(str);
-	int begin = 0;
-	int end = len - 1;
-
-	/* Find index of first non-whitespace character */
-	while ((begin < len) && isspace((unsigned char) str[begin]))
-		begin++;
-
-	/* Find index of last non-whitespace character */
-	while ((end >= begin) && isspace((unsigned char) str[end]))
-		end--;
-
-	/* Shift all characters caught between leading and trailing whitespace
-	 * to the start of the string */
-	for (i = begin; i <= end; i++)
-		str[i - begin] = str[i];
-
-	/* Note: if the string contained nothing but whitespace, a string of 0
-	 * length is returned */
-	str[i - begin] = '\0';
-}
+#include "pec-ftp.h"
 
 
 int get_user_input(char * buffer){
@@ -70,25 +38,37 @@ int get_user_input(char * buffer){
 }
 
 
-// TODO: what does this function do? And what are n5 and n6?
-// my best guess at the moment is that it constructs a string that FTP needs
-// in the format of "[ip short1],[ip short2],[ip short3],[ip short4],[port byte2],[port byte1]"
-int get_port_string(char *str, char *ip, int n5, int n6) {
-	int i = 0;
-	// TODO this buffer is way oversized
-	char ip_temp[1024];
-	// TODO this should be a strncpy
-	strcpy(ip_temp, ip);
+/* Takes a string representing an ip address and two ints representing the 8
+ * least and 8 most significant bits in a port number and modifies 'str' to
+ * contain a port command of the format specified by FTP.
+ *
+ * \param '*str' a string which will be modified to contain the PORT command.
+ *     It must be at least 29 bytes long.
+ * \param '*ip' a pointer to string representation of the ip address of the
+ *     client.
+ * \param 'p1' an int containing in its 8 least significant bits the 8 most
+ *     significant bits of the port number.
+ * \param 'p2' an int containing in its 8 least significant bits the 8 least
+ *     significant bits of the port number.
+ * \return void.
+ */
+void generate_port_command(char *str, char *ip, int p1, int p2) {
+	/* Generate the port command, as specified at page 28 of:
+	 * https://www.ietf.org/rfc/rfc959.txt */
 
-	// TODO strlen on every loop iteration
-	for (i = 0; i < strlen(ip); i++){
+	int i = 0;
+	char ip_temp[INET_ADDRSTRLEN];
+	strncpy(ip_temp, ip, INET_ADDRSTRLEN);
+
+	int ip_len = strlen(ip);
+
+	for (i = 0; i < ip_len; i++){
 		if (ip_temp[i] == '.'){
 			ip_temp[i] = ',';
 		}
 	}
 
-	sprintf(str, "PORT %s,%d,%d", ip_temp, n5, n6);
-	return 1;
+	sprintf(str, "PORT %s,%d,%d", ip_temp, p1, p2);
 }
 
 
@@ -119,7 +99,7 @@ int check_command(char *command){
 }
 
 
-// TODO: what does this function do? my best guess right now
+// TODO: what does this function do? my best guess right now: ...
 int get_command(char *command){
 	int value, check = -1;
 	char copy[1024];
@@ -158,7 +138,6 @@ int get_command(char *command){
 
 			check = 1;
 
-
 			//populated value valriable to indicate back to main which input was entered
 			// TODO: these should be strncmp
 			if(strcmp(str, "ls") == 0){value = 1;}
@@ -175,49 +154,35 @@ int get_command(char *command){
 	return value;
 }
 
-// TODO: what does this function do? what are n5 and n6?
+
+// TODO: what does this function do? what are p1 and p2?
 // my best guess as to what this function does at the moment is that it
-// takes a port and modifies the ints at 'n5' and 'n6' such that the former
+// takes a port and modifies the ints at 'p1' and 'p2' such that the former
 // represents bits 9-16 of 'port' and the latter represents bits 1-8.
-int convert(uint16_t port, int *n5, int *n6) {
+int convert(uint16_t port, int *p1, int *p2) {
 	int i = 0;
 	int x = 1;
-	*n5 = 0;
-	*n6 = 0;
-	/* Set the first (i.e. the least significant) 8 bits of '(*n6)' to the
+	*p1 = 0;
+	*p2 = 0;
+	/* Set the first (i.e. the least significant) 8 bits of '(*p2)' to the
 	   first 8 bits (bits 1-8) of 'port' */
 	for (i = 0; i < 8; i++) {
-		*n6 = (*n6)|(port & x);
+		*p2 = (*p2)|(port & x);
 		x = x << 1;
 	}
 
-
-	/* Set the first (i.e. the least significant) 8 bits of '(*n5)' to
+	/* Set the first (i.e. the least significant) 8 bits of '(*p1)' to
 	   bits 9-16 of 'port' */
 	port = port >> 8;
 	x = 1;
 
 	for (i = 0; i < 8; i++) {
-		*n5 = (*n5)|(port & x);
+		*p1 = (*p1)|(port & x);
 		x = x << 1;
 	}
 	return 1;
 }
 
-
-// TODO: what does this function do? My best guess at the moment is that it
-// modifies 'ip', and 'port' to contain the IP address and port of the socket
-// represented by 'fd'
-int get_ip_port(int fd, char *ip, int *port){
-	struct sockaddr_in addr;
-	socklen_t len = sizeof(addr);
-
-	getsockname(fd, (struct sockaddr *) &addr, &len);
-	// TODO: potential security risk
-	sprintf(ip, inet_ntoa(addr.sin_addr));
-	*port = (uint16_t) ntohs(addr.sin_port);
-	return 1;
-}
 
 int get_filename(char *input, char *fileptr){
     char cpy[1024];
@@ -236,7 +201,8 @@ int get_filename(char *input, char *fileptr){
     }
 }
 
-/* CSCD58 Addition */
+
+/* CSCD58 Addition - Encryption */
 int do_dh(int controlfd, int datafd, uint32_t key[4]) {
 	uint64_t dh_p = 1;
 	dh_p = (dh_p << 32) - 99;
@@ -261,7 +227,8 @@ int do_dh(int controlfd, int datafd, uint32_t key[4]) {
 
 	return 0;
 }
-/* End CSCD58 Addition */
+/* End CSCD58 Addition - Encryption */
+
 
 int do_ls(int controlfd, int datafd, char *input){
 
@@ -274,7 +241,9 @@ int do_ls(int controlfd, int datafd, char *input){
     int maxfdp1, data_finished = FALSE, control_finished = FALSE;
 
     if(get_filename(input, filelist) < 0){
-        printf("No Filelist Detected...\n");
+		if (DEBUG_OUTPUT == 1) {
+        	fprintf(stdout, "No input filelist detected...\n");
+		}
         sprintf(str, "LIST");
     }else{
         sprintf(str, "LIST %s", filelist);
@@ -302,6 +271,7 @@ int do_ls(int controlfd, int datafd, char *input){
             read(controlfd, recvline, MAXLINE);
             //strtok(recvline, " ");
             //recvline = strtok(NULL, " ");
+			// TODO: I think this always prints the like, http code e.g. "200 Command OK"
             printf("%s\n", recvline);
             temp = strtok(recvline, " ");
             if(atoi(temp) != 200){
@@ -314,7 +284,9 @@ int do_ls(int controlfd, int datafd, char *input){
         }
 
         if(FD_ISSET(datafd, &rdset)){
-            printf("Server Data Response:\n");
+			if (DEBUG_OUTPUT == 1) {
+				fprintf(stdout, "Server Data Response:\n");
+			}
             while(read(datafd, recvline, MAXLINE) > 0){
                 printf("%s", recvline);
                 bzero(recvline, (int)sizeof(recvline));
@@ -361,7 +333,7 @@ int do_get(int controlfd, int *datafds, char *input){
 	sprintf(str, "RETR %s", filename);
 	printf("File: %s\n", filename);
 
-	/* CSCD58 addition */
+	/* CSCD58 addition - Compression */
 	/* Make temporary <filename>.comp.enc-XXXXXX file for receiving the file */
 	char * encsuffix = ".enc";
 	int encsuffix_len = strlen(encsuffix);
@@ -379,7 +351,7 @@ int do_get(int controlfd, int *datafds, char *input){
 	close(r);
 	unlink(recvfilepath);
 	sprintf(temp1, "%s", recvfilepath);
-	/* CSCD58 end of addition */
+	/* CSCD58 end of addition - Compression */
 
 	bzero(filename, (int)sizeof(filename));
 
@@ -387,7 +359,7 @@ int do_get(int controlfd, int *datafds, char *input){
 	FD_SET(controlfd, &rdset);
 	// FD_SET(datafd, &rdset);
 
-    /* CSCD58 addition */
+    /* CSCD58 addition - Parallelization */
     int i = 0;
     maxfdp1 = datafds[0];
     for (i = 0; i < NDATAFD; i++) {
@@ -398,7 +370,7 @@ int do_get(int controlfd, int *datafds, char *input){
         if (datafds[i] > maxfdp1)
             maxfdp1 = datafds[i] + 1;
     }
-    /* End CSCD58 addition */
+    /* End CSCD58 addition - Parallelization */
 
 	if(controlfd > maxfdp1){
         maxfdp1 = controlfd + 1;
@@ -412,10 +384,10 @@ int do_get(int controlfd, int *datafds, char *input){
 
 	write(controlfd, str, strlen(str));
 
-	/* CSCD58 Addition */
+	/* CSCD58 Addition - Encryption */
 	uint32_t key[4];
 	do_dh(controlfd, datafds[0], key);
-	/* End CSCD58 Addition */
+	/* End CSCD58 Addition - Encryption */
 
 	int j = 0;
 	int err = 0;
@@ -499,7 +471,7 @@ int do_get(int controlfd, int *datafds, char *input){
 		return -1;
 	}
 
-	/* CSCD58 addition */
+	/* CSCD58 addition - Compression */
 	/* Create 'cat <filename>.comp.enc-XXXXXX' */
 	int unencinputfilelen = strlen(temp1) + 5;
 	char unencinputfilepath[unencinputfilelen];
@@ -542,7 +514,7 @@ int do_get(int controlfd, int *datafds, char *input){
 			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
 		}
 	}
-	/* CSCD58 end of addition */
+	/* CSCD58 end of addition - Compression */
 
 	return 1;
 }
@@ -552,7 +524,6 @@ int do_put(int controlfd, int datafd, char *input){
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(str, (int)sizeof(str));
-	//int n = 0, p = 0;
 
 	fd_set wrset, rdset;
 	int maxfdp1, data_finished = FALSE, control_finished = FALSE;
@@ -570,7 +541,7 @@ int do_put(int controlfd, int datafd, char *input){
 
 	sprintf(str, "STOR %s", filename);
 
-	/* CSCD58 addition */
+	/* CSCD58 addition - Compression */
 	char * encsuffix = ".enc";
 	int encsuffix_len = strlen(encsuffix);
 	char * compsuffix = ".comp";
@@ -598,8 +569,7 @@ int do_put(int controlfd, int datafd, char *input){
 		return -1;
 	}
 	sprintf(temp1, "cat %s", compfilepath);
-	/* sprintf(temp1, "cat %s", filename); */
-	/* CSCD58 end of addition */
+	/* CSCD58 end of addition - Compression */
 
 	bzero(filename, (int)sizeof(filename));
 
@@ -615,11 +585,12 @@ int do_put(int controlfd, int datafd, char *input){
 	}
 
 	FILE *in;
+	// TODO: what happens here?
 	extern FILE *popen();
 
 	write(controlfd, str, strlen(str));
 
-	/* CSCD58 Addition */
+	/* CSCD58 Addition - Encryption + Compression */
 	uint32_t key[4];
 	do_dh(controlfd, datafd, key);
 
@@ -637,7 +608,7 @@ int do_put(int controlfd, int datafd, char *input){
 	enc_file(temp1, encfilepath, key);
 
 	sprintf(temp1, "cat %s", encfilepath);
-	/* End CSCD58 Addition */
+	/* End CSCD58 Addition - Encryption + Compression */
 
 	if (!(in = popen(temp1, "r"))) {
 		printf("Cannot Run Command\nExiting...\n");
@@ -681,7 +652,7 @@ int do_put(int controlfd, int datafd, char *input){
 			break;
 		}
 	}
-	/* CSCD58 addition */
+	/* CSCD58 addition - Compression */
 	if (KEEP_TEMP_COMP_FILES != 1) {
 		if (0 != remove(compfilepath)) {
 			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
@@ -692,13 +663,13 @@ int do_put(int controlfd, int datafd, char *input){
 			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
 		}
 	}
-	/* CSCD58 end of addition */
+	/* CSCD58 end of addition - Compression */
 	return 1;
 }
 
 /* Set up control connection */
 int setup_control_conn(int * controlfd, struct sockaddr_in * serv_addr, \
-	char * ip_addr, short port) {
+	char * ip_addr, uint16_t port) {
 
 	/* Create a control socket */
 	if ( ( (*controlfd) = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -725,10 +696,12 @@ int setup_control_conn(int * controlfd, struct sockaddr_in * serv_addr, \
 
 /* Set up data connection */
 int setup_data_conn(int * listenfd, struct sockaddr_in * data_addr, \
-	short port) {
+	uint16_t port) {
 
 	/* Create a data socket for listening */
-	(*listenfd) = socket(AF_INET, SOCK_STREAM, 0);
+	if (( (*listenfd) = socket(AF_INET, SOCK_STREAM, 0) ) < 0) {
+		return -1;
+	}
 
 	/* Create the configuration for the data connection */
 	bzero(data_addr, sizeof( (*data_addr) ));
@@ -738,22 +711,23 @@ int setup_data_conn(int * listenfd, struct sockaddr_in * data_addr, \
 
 	/* Bind the data socket (apply configuration) */
 	if (bind( (*listenfd), (struct sockaddr *) data_addr, sizeof( (*data_addr) )) < 0) {
-		return -1;
+		return -2;
 	}
 
 	/* Set the socket as passive (one that listens) with a backlog of
 	 * 'LISTENQ' */
-	listen( (*listenfd), LISTENQ);
+	if ( (listen( (*listenfd), LISTENQ)) < 0) {
+		return -3;
+	}
 
 	return 0;
 }
 
 
 int main(int argc, char **argv) {
-	int server_port, controlfd, listenfd, datafds[NDATAFD], cmd, n5, n6, x;
-	uint16_t port;
+	int server_port, controlfd, listenfd, datafds[NDATAFD], cmd, p1, p2;
 	struct sockaddr_in serv_addr, data_addr;
-	char command[1024], ip[50], str[MAXLINE+1];
+	char command[1024], ip[INET_ADDRSTRLEN], str[MAXLINE+1];
 
 	if (argc != 3) {
 		printf("Invalid Number of Arguments...\n");
@@ -761,7 +735,8 @@ int main(int argc, char **argv) {
 		exit(-1);
 	}
 
-	/* Parse server port from commandline args */
+	/* Parse server address and port from commandline args */
+	strncpy(ip, argv[1], INET_ADDRSTRLEN);
 	sscanf(argv[2], "%d", &server_port);
 
 	if (setup_control_conn(&controlfd, &serv_addr, argv[1], server_port) < 0) {
@@ -769,80 +744,21 @@ int main(int argc, char **argv) {
 		exit(-1);
 	}
 
-	/// {{{
-	/* /1* SCC: Set up control connection *1/ */
-	/* /1* SCC1: Create a control socket *1/ */
-	/* if ( (controlfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) { */
-	/* 	perror("socket error"); */
-	/* 	exit(-1); */
-	/* } */
-
-	/* /1* SCC2: Create the configuration for the control connection *1/ */
-	/* bzero(&serv_addr, sizeof(serv_addr)); */
-	/* serv_addr.sin_family = AF_INET; */
-	/* serv_addr.sin_port   = htons(server_port); */
-	/* if (inet_pton(AF_INET, argv[1], &serv_addr.sin_addr) <= 0){ */
-	/* 	perror("inet_pton error"); */
-	/* 	exit(-1); */
-	/* } */
-
-	/* /1* SCC3: Connect the control socket to the server (using the configuration) *1/ */
-	/* if (connect(controlfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) { */
-	/* 	perror("connect error"); */
-	/* 	exit(-1); */
-	/* } */
-	/// }}}
-
-	/* CSCD58 Addition */
-	struct sockaddr_in addr;
-	socklen_t len = sizeof(addr);
-	getsockname(controlfd, (struct sockaddr*) &addr, &len);
-	/* End CSCD58 Addition */
-
 	// TODO: should the port be 0?
 	if (setup_data_conn(&listenfd, &data_addr, 0) < 0) {
 		perror("data connection setup error");
 		exit(-1);
 	}
 
-	/// {{{
-	/* /1* SDC: Set up data connection *1/ */
-	/* /1* SDC1: Create a data socket for listening *1/ */
-	/* listenfd = socket(AF_INET, SOCK_STREAM, 0); */
-
-	/* /1* SDC2: Create the configuration for the data connection *1/ */
-	/* bzero(&data_addr, sizeof(data_addr)); */
-	/* data_addr.sin_family = AF_INET; */
-	/* data_addr.sin_addr.s_addr = htonl(INADDR_ANY); */
-	/* // TODO: should the port be 0? */
-	/* data_addr.sin_port = htons(0); */
-
-	/* /1* SDC3: Bind the data socket (apply configuration) *1/ */
-	/* if (bind(listenfd, (struct sockaddr*) &data_addr, sizeof(data_addr)) < 0) { */
-	/* 	perror("bind error"); */
-	/* 	exit(-1); */
-	/* } */
-
-	/* /1* SDC4: Set the socket as passive (one that listens) with a backlog of */
-	/*  * 'LISTENQ' *1/ */
-	/* listen(listenfd, LISTENQ); */
-	/// }}}
-
-// ====================================================================
-
-    //get ip address from control port
-    get_ip_port(controlfd, ip, (int *)&x);
-	// TODO: ^ is the above not available in
-	// 'inet_ntop(..., serv_addr.sin_addr, ...)' and 'ntohs(serv_addr.sin_port)'?
-	// (in fact, that all get_ip_port does) or better yet, just argv[1],
-	// argv[2]?
-    printf("ip: %s\n", ip);
-    //get data connection port from listenfd
-    get_ip_port(listenfd, str, (int *)&port);
-	// TODO: ^ is the above not available at SDC2?
-
-    printf("Port: %d, str: %s\n",  port, str);
-    convert(port, &n5, &n6);
+	/* Get the port through which the client communicating */
+	uint16_t client_conn_port = 0;
+	if (get_port(listenfd, &client_conn_port) < 0) {
+		perror("data connection setup error");
+		exit(-1);
+	}
+	printf("IP: %s, Port: %d\n", ip, client_conn_port);
+	// TODO: what does this convert() function do here?
+    convert((uint16_t) client_conn_port, &p1, &p2);
 
     while (1) {
         bzero(command, strlen(command));
@@ -859,23 +775,32 @@ int main(int argc, char **argv) {
             printf("Server Response: %s\n", quit);
             break;
         }
-        printf("command: %s\n", command);
 
-        //send "PORT n1,n2,n3,n4,n5,n6"
+		if (DEBUG_OUTPUT == 1) {
+			fprintf(stdout, "command: %s\n", command);
+		}
+
+		/* TODO: What does this block of code do? Is it necessary?
+		 * Update: just removed it, it broke the program. The question is:
+		 * is this some student silliness, or is this part of FTP?
+		 */
+        //send "PORT h1,h2,h3,h4,p1,p2"
         bzero(str, (int)sizeof(str));
-        get_port_string(str, ip, n5, n6);
+        generate_port_command(str, ip, p1, p2);
         write(controlfd, str, strlen(str));
         bzero(str, (int)sizeof(str));
 
-        /* CSCD58 Addition */
+        /* CSCD58 Addition - Parallelization */
         int i = 0;
         for (i = 0; i < NDATAFD; i++) {
             datafds[i] = accept(listenfd, (struct sockaddr*)NULL, NULL);
             //printf("%d-th data connection established\n", i);
         }
-        /* End CSCD58 Addition */
+        /* End CSCD58 Addition - Parallelization */
 
-        printf("Data connection Established...\n");
+		if (DEBUG_OUTPUT == 1) {
+			fprintf(stdout, "Data connection established. Ready to receive data!\n");
+		}
 
         if (cmd == CMD_LS) {
             if (do_ls(controlfd, datafds[0], command) < 0) {
