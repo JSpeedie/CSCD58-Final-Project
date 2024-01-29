@@ -1,9 +1,3 @@
-//myclient.c source file
-
-#include "comp.h"
-#include "enc.h"
-#include "pec-ftp.h"
-
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <fcntl.h>
@@ -20,159 +14,209 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include "comp.h"
+#include "enc.h"
+#include "pec-ftp.h"
 #include "enc.h"
 #include "ftputil.h"
 
-//function trims leading and trailing whitespaces
-void trim(char *str)
-{
 
+/** Takes a string and modifies it such that there is no leading or trailing
+ * whitespace.
+ *
+ * \param '*str' the input string which will be modified.
+ * \return void.
+ */
+void trim(char *str) {
 	int i;
-    int begin = 0;
+	int len = strlen(str);
+	int begin = 0;
+	int end = len - 1;
 
-    int end = strlen(str) - 1;
+	/* Find index of first non-whitespace character */
+	while ((begin < len) && isspace((unsigned char) str[begin]))
+		begin++;
 
-    while (isspace((unsigned char) str[begin]))
-        begin++;
+	/* Find index of last non-whitespace character */
+	while ((end >= begin) && isspace((unsigned char) str[end]))
+		end--;
 
-    while ((end >= begin) && isspace((unsigned char) str[end]))
-        end--;
+	/* Shift all characters caught between leading and trailing whitespace
+	 * to the start of the string */
+	for (i = begin; i <= end; i++)
+		str[i - begin] = str[i];
 
-    // Shift all characters back to the start of the string array.
-    for (i = begin; i <= end; i++)
-        str[i - begin] = str[i];
-
-    str[i - begin] = '\0'; // Null terminate string.
+	/* Note: if the string contained nothing but whitespace, a string of 0
+	 * length is returned */
+	str[i - begin] = '\0';
 }
 
 
-int get_user_input(char *buffer){
+int get_user_input(char * buffer){
 	//clear buffer
-    memset(buffer, 0, (int)sizeof(buffer));
+	memset(buffer, 0, (int) sizeof(buffer));
 
-    //print prompt
-    printf("> ");
+	//print the prompt
+	printf("> ");
 
-    //get user input
-    if(fgets(buffer, 1024, stdin) == NULL){
-            return -1;
-    }
+	// TODO: should this not loop? Currently it only ever reads a maximum of 1024 characters
+	//get user input
+	if (fgets(buffer, 1024, stdin) == NULL){
+		return -1;
+	}
 
-    return 1;
+	return 1;
 }
 
-int get_port_string(char *str, char *ip, int n5, int n6){
-    int i = 0;
-    char ip_temp[1024];
-    strcpy(ip_temp, ip);
 
-    for(i = 0; i < strlen(ip); i++){
-        if(ip_temp[i] == '.'){
-            ip_temp[i] = ',';
-        }
-    }
+// TODO: what does this function do? And what are n5 and n6?
+// my best guess at the moment is that it constructs a string that FTP needs
+// in the format of "[ip short1],[ip short2],[ip short3],[ip short4],[port byte2],[port byte1]"
+int get_port_string(char *str, char *ip, int n5, int n6) {
+	int i = 0;
+	// TODO this buffer is way oversized
+	char ip_temp[1024];
+	// TODO this should be a strncpy
+	strcpy(ip_temp, ip);
 
-    sprintf(str, "PORT %s,%d,%d", ip_temp, n5, n6);
-    return 1;
+	// TODO strlen on every loop iteration
+	for (i = 0; i < strlen(ip); i++){
+		if (ip_temp[i] == '.'){
+			ip_temp[i] = ',';
+		}
+	}
+
+	sprintf(str, "PORT %s,%d,%d", ip_temp, n5, n6);
+	return 1;
 }
 
+
+// TODO: what does this function do? my best guess right now
+// is that it returns 1 if the number of whitespace characters in '*command'
+// is <= 1.
 int check_command(char *command){
-	int i = 0, len = strlen(command), space = FALSE, count = 0;
-	for(i = 0; i < len; i++){
-		if(isspace(command[i]) == 0){
-			space = FALSE;
-			continue;
-		}else{
-			if(space == FALSE){
+	int len = strlen(command);
+	int space = FALSE;
+	int count = 0;
+
+	for (int i = 0; i < len; i++) {
+		if (isspace(command[i]) == 0) {
+			space = FALSE; // TODO: space is first instantiated to FALSE and is never set to TRUE, so what is the point of this?
+			continue; // TODO: is this continue necessary?
+		} else {
+			if (space == FALSE) { // TODO: space is first instantiated to FALSE and is never set to TRUE, so what is the point of this?
 				count++;
 			}
 		}
 	}
 
-	if(count <= 1){return 1;}
-	else{return -1;}
+	if (count <= 1) {
+		return 1;
+	} else {
+		return -1;
+	}
 }
 
+
+// TODO: what does this function do? my best guess right now
 int get_command(char *command){
 	int value, check = -1;
-	char copy[1024];	
-	while(check < 0){
-    	char *str;
-    	if(get_user_input(command) < 0){
-    		printf("Cannot Read Command...\nPlease Try Again...\n");
-            bzero(command, (int)sizeof(command));
-    		continue;
-    	}
+	char copy[1024];
 
-        if(strlen(command) < 2){
-            printf("No Input Detected...\nPlease Try Again\n");
-            bzero(command, (int)sizeof(command));
-            continue;
-        }
+	while (check < 0) {
+		char *str;
+		if (get_user_input(command) < 0) {
+			printf("Cannot Read Command...\nPlease Try Again...\n");
+			bzero(command, (int)sizeof(command));
+			continue;
+		}
 
-        trim(command);
-        strcpy(copy, command);
+		if (strlen(command) < 2) {
+			printf("No Input Detected...\nPlease Try Again\n");
+			bzero(command, (int)sizeof(command));
+			continue;
+		}
 
-        if(check_command(copy) < 0){
-            	printf("Invalid Format...\nPlease Try Again...\n");
-            	bzero(command, (int)sizeof(command));
-            	bzero(copy, (int)sizeof(copy));
-            	continue;
-        }
+		trim(command);
+		strcpy(copy, command);
+
+		if (check_command(copy) < 0) {
+			printf("Invalid Format...\nPlease Try Again...\n");
+			bzero(command, (int)sizeof(command));
+			bzero(copy, (int)sizeof(copy));
+			continue;
+		}
+
+		char delimit[]=" \t\r\n\v\f";
+		/* Get the first token from the command */
+		str = strtok(copy, delimit);
+		/* If that token is a valid FTP command */
+		// TODO: these should be strncmp
+		if ((strcmp(str, "ls") == 0) || (strcmp(str, "get") == 0) \
+			|| (strcmp(str, "put") == 0) || (strcmp(str, "quit") == 0)) {
+
+			check = 1;
 
 
-    	char delimit[]=" \t\r\n\v\f";
-    	str = strtok(copy, delimit);
-    	if((strcmp(str, "ls") == 0) || (strcmp(str, "get") == 0) || (strcmp(str, "put") == 0) || (strcmp(str, "quit") == 0)){
-    		check = 1;
-
-
-            //populated value valriable to indicate back to main which input was entered
-            if(strcmp(str, "ls") == 0){value = 1;}
-            else if(strcmp(str, "get") == 0){value = 2;}
-            else if(strcmp(str, "put") == 0){value = 3;}
-            else if(strcmp(str, "quit") == 0){value = 4;}
-    	}else{
-    		printf("Incorrect Command Entered...\nPlease Try Again...\n");
-            bzero(command, strlen(command));
-           	bzero(copy, sizeof(copy));
-    		continue;
-    	}
-    }
+			//populated value valriable to indicate back to main which input was entered
+			// TODO: these should be strncmp
+			if(strcmp(str, "ls") == 0){value = 1;}
+			else if(strcmp(str, "get") == 0){value = 2;}
+			else if(strcmp(str, "put") == 0){value = 3;}
+			else if(strcmp(str, "quit") == 0){value = 4;}
+		}else{
+			printf("Incorrect Command Entered...\nPlease Try Again...\n");
+			bzero(command, strlen(command));
+			bzero(copy, sizeof(copy));
+			continue;
+		}
+	}
 	return value;
 }
 
-int convert(uint16_t port, int *n5, int *n6){
-    int i = 0;
-    int x = 1;
-    *n5 = 0;
-    *n6 = 0;
-    int temp = 0;
-    for(i = 0; i< 8; i++){
-        temp = port & x;
-        *n6 = (*n6)|(temp);
-        x = x << 1; 
-    }
+// TODO: what does this function do? what are n5 and n6?
+// my best guess as to what this function does at the moment is that it
+// takes a port and modifies the ints at 'n5' and 'n6' such that the former
+// represents bits 9-16 of 'port' and the latter represents bits 1-8.
+int convert(uint16_t port, int *n5, int *n6) {
+	int i = 0;
+	int x = 1;
+	*n5 = 0;
+	*n6 = 0;
+	/* Set the first (i.e. the least significant) 8 bits of '(*n6)' to the
+	   first 8 bits (bits 1-8) of 'port' */
+	for (i = 0; i < 8; i++) {
+		*n6 = (*n6)|(port & x);
+		x = x << 1;
+	}
 
-    port = port >> 8;
-    x = 1;
 
-    for(i = 8; i< 16; i++){
-        temp = port & x;
-        *n5 = ((*n5)|(temp));
-        x = x << 1; 
-    }
-    return 1;
+	/* Set the first (i.e. the least significant) 8 bits of '(*n5)' to
+	   bits 9-16 of 'port' */
+	port = port >> 8;
+	x = 1;
+
+	for (i = 0; i < 8; i++) {
+		*n5 = (*n5)|(port & x);
+		x = x << 1;
+	}
+	return 1;
 }
 
-int get_ip_port(int fd, char *ip, int *port){
-    struct sockaddr_in addr;
-    socklen_t len = sizeof(addr);
 
-    getsockname(fd, (struct sockaddr*) &addr, &len);
-    sprintf(ip, inet_ntoa(addr.sin_addr));
-    *port = (uint16_t)ntohs(addr.sin_port);
-    return 1;
+// TODO: what does this function do? My best guess at the moment is that it
+// modifies 'ip', and 'port' to contain the IP address and port of the socket
+// represented by 'fd'
+int get_ip_port(int fd, char *ip, int *port){
+	struct sockaddr_in addr;
+	socklen_t len = sizeof(addr);
+
+	getsockname(fd, (struct sockaddr *) &addr, &len);
+	// TODO: potential security risk
+	sprintf(ip, inet_ntoa(addr.sin_addr));
+	*port = (uint16_t) ntohs(addr.sin_port);
+	return 1;
 }
 
 int get_filename(char *input, char *fileptr){
@@ -194,33 +238,33 @@ int get_filename(char *input, char *fileptr){
 
 /* CSCD58 Addition */
 int do_dh(int controlfd, int datafd, uint32_t key[4]) {
-    uint64_t dh_p = 1;
-    dh_p = (dh_p << 32) - 99;
-    uint64_t dh_g = 5;
-    uint64_t dh_a, dh_ka, dh_kb, dh_k;
-    fd_set fds;
-    FD_ZERO(&fds);
+	uint64_t dh_p = 1;
+	dh_p = (dh_p << 32) - 99;
+	uint64_t dh_g = 5;
+	uint64_t dh_a, dh_ka, dh_kb, dh_k;
+	fd_set fds;
+	FD_ZERO(&fds);
 
-    for (int i = 0; i < 4; i++) {
-        dh_a = (rand() % (dh_p - 2)) + 2;
-        dh_ka = sq_mp(dh_g, dh_a, dh_p);
-        FD_SET(datafd, &fds);
+	for (int i = 0; i < 4; i++) {
+		dh_a = (rand() % (dh_p - 2)) + 2;
+		dh_ka = sq_mp(dh_g, dh_a, dh_p);
+		FD_SET(datafd, &fds);
 
-        write(datafd, (char *)&dh_ka, sizeof(dh_ka));
+		write(datafd, (char *)&dh_ka, sizeof(dh_ka));
 
-        select(datafd + 1, &fds, NULL, NULL, NULL);
-        read(datafd, (char *)&dh_kb, sizeof(dh_kb));
+		select(datafd + 1, &fds, NULL, NULL, NULL);
+		read(datafd, (char *)&dh_kb, sizeof(dh_kb));
 
-        dh_k = sq_mp(dh_kb, dh_a, dh_p);
-        key[i] = dh_k & 0xffffffff;
-    }
+		dh_k = sq_mp(dh_kb, dh_a, dh_p);
+		key[i] = dh_k & 0xffffffff;
+	}
 
-    return 0;
+	return 0;
 }
 /* End CSCD58 Addition */
 
 int do_ls(int controlfd, int datafd, char *input){
-    
+
     char filelist[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp;
     bzero(filelist, (int)sizeof(filelist));
     bzero(recvline, (int)sizeof(recvline));
@@ -272,8 +316,8 @@ int do_ls(int controlfd, int datafd, char *input){
         if(FD_ISSET(datafd, &rdset)){
             printf("Server Data Response:\n");
             while(read(datafd, recvline, MAXLINE) > 0){
-                printf("%s", recvline); 
-                bzero(recvline, (int)sizeof(recvline)); 
+                printf("%s", recvline);
+                bzero(recvline, (int)sizeof(recvline));
             }
 
             data_finished = TRUE;
@@ -335,7 +379,6 @@ int do_get(int controlfd, int *datafds, char *input){
 	close(r);
 	unlink(recvfilepath);
 	sprintf(temp1, "%s", recvfilepath);
-	/* sprintf(temp1, "%s-out", filename); */
 	/* CSCD58 end of addition */
 
 	bzero(filename, (int)sizeof(filename));
@@ -373,12 +416,12 @@ int do_get(int controlfd, int *datafds, char *input){
 	uint32_t key[4];
 	do_dh(controlfd, datafds[0], key);
 	/* End CSCD58 Addition */
-	
+
 	int j = 0;
 	int err = 0;
-    
+
     /* CSCD58 Additon - Parallelization */
-	while(1){
+	while (1) {
         if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
         //if(data_finished == FALSE){FD_SET(datafds, &rdset);}
         if(data_finished == FALSE){FD_SETS(datafds, &rdset, NDATAFD, i);}
@@ -389,7 +432,7 @@ int do_get(int controlfd, int *datafds, char *input){
             read(controlfd, recvline, MAXLINE);
             printf("Server Control Response: %s\n", recvline);
             temp = strtok(recvline, " ");
-            if(atoi(temp) != 200){
+            if (atoi(temp) != 200) {
                 err = 1;
                 printf("File Error...\nExiting...\n");
                 break;
@@ -402,7 +445,7 @@ int do_get(int controlfd, int *datafds, char *input){
         for (i = 0; i< NDATAFD; i++) {
             if(FD_ISSET(datafds[i], &rdset)){
                 bzero(recvline, (int)sizeof(recvline));
-                
+
                 if((n = recv(datafds[i], recvline, MAXLINE, MSG_PEEK)) > 0) {
                     if (n < 6) {
                         continue;
@@ -413,7 +456,7 @@ int do_get(int controlfd, int *datafds, char *input){
                             n = read(datafds[i], recvline, n);
                         }
                     }
-                    
+
                     int off = 0;
                     if (rem[i] == 0) {
                         memcpy(p + i, recvline, 4);
@@ -424,7 +467,7 @@ int do_get(int controlfd, int *datafds, char *input){
                     fwrite(recvline + off, 1, n - off, fp);
                     rem[i] = rem[i] - (n - off);
                     p[i] = p[i] + (n - off);
-                    //printf("%s", recvline); 
+                    //printf("%s", recvline);
                     bzero(recvline, (int)sizeof(recvline));
                 } else {
                     if (!closed[i]) {
@@ -435,7 +478,7 @@ int do_get(int controlfd, int *datafds, char *input){
                 if (j >= NDATAFD)
                     data_finished = TRUE;
                 FD_CLR(datafds[i], &rdset);
-            } 
+            }
         }
         if((control_finished == TRUE) && (data_finished == TRUE)){
             break;
@@ -443,11 +486,12 @@ int do_get(int controlfd, int *datafds, char *input){
 
     }
     /* End CSCD58 Additoon - Parallelization */
+
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(str, (int)sizeof(str));
 	fclose(fp);
-	
+
 	if (err) {
 	    if (0 != remove(temp1)) {
 			fprintf(stderr, "WARNING: could not remove temporary file following an error!\n");
@@ -600,7 +644,7 @@ int do_put(int controlfd, int datafd, char *input){
 		return -1;
 	}
 
-	while(1){
+	while (1) {
 		if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
 		if(data_finished == FALSE){FD_SET(datafd, &wrset);}
 		select(maxfdp1, &rdset, &wrset, NULL, NULL);
@@ -652,97 +696,177 @@ int do_put(int controlfd, int datafd, char *input){
 	return 1;
 }
 
+/* Set up control connection */
+int setup_control_conn(int * controlfd, struct sockaddr_in * serv_addr, \
+	char * ip_addr, short port) {
 
-int main(int argc, char **argv){
-	int server_port, controlfd, listenfd, datafds[NDATAFD], code, n5, n6, x;
-    uint16_t port;
-	struct sockaddr_in servaddr, data_addr;
+	/* Create a control socket */
+	if ( ( (*controlfd) = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror("socket error");
+		return -1;
+	}
+
+	/* Create the configuration for the control connection */
+	bzero(serv_addr, sizeof( (*serv_addr) ));
+	serv_addr->sin_family = AF_INET;
+	serv_addr->sin_port = htons(port);
+	if (inet_pton(AF_INET, ip_addr, &(serv_addr->sin_addr)) <= 0) {
+		return -2;
+	}
+
+	/* Connect the control socket to the server (using the configuration) */
+	if (connect( (*controlfd), (struct sockaddr *) serv_addr, sizeof( (*serv_addr) )) < 0) {
+		return -3;
+	}
+
+	return 0;
+}
+
+
+/* Set up data connection */
+int setup_data_conn(int * listenfd, struct sockaddr_in * data_addr, \
+	short port) {
+
+	/* Create a data socket for listening */
+	(*listenfd) = socket(AF_INET, SOCK_STREAM, 0);
+
+	/* Create the configuration for the data connection */
+	bzero(data_addr, sizeof( (*data_addr) ));
+	data_addr->sin_family = AF_INET;
+	data_addr->sin_addr.s_addr = htonl(INADDR_ANY);
+	data_addr->sin_port = htons(port);
+
+	/* Bind the data socket (apply configuration) */
+	if (bind( (*listenfd), (struct sockaddr *) data_addr, sizeof( (*data_addr) )) < 0) {
+		return -1;
+	}
+
+	/* Set the socket as passive (one that listens) with a backlog of
+	 * 'LISTENQ' */
+	listen( (*listenfd), LISTENQ);
+
+	return 0;
+}
+
+
+int main(int argc, char **argv) {
+	int server_port, controlfd, listenfd, datafds[NDATAFD], cmd, n5, n6, x;
+	uint16_t port;
+	struct sockaddr_in serv_addr, data_addr;
 	char command[1024], ip[50], str[MAXLINE+1];
 
-	if(argc != 3){
+	if (argc != 3) {
 		printf("Invalid Number of Arguments...\n");
 		printf("Usage: ./ftpclient <server-ip> <server-listen-port>\n");
 		exit(-1);
 	}
 
-	//get server port
+	/* Parse server port from commandline args */
 	sscanf(argv[2], "%d", &server_port);
 
-    //set up control connection--------------------------------------------------
-    if ( (controlfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-    	perror("socket error");
-    	exit(-1);
-    }
+	if (setup_control_conn(&controlfd, &serv_addr, argv[1], server_port) < 0) {
+		perror("control connection setup error");
+		exit(-1);
+	}
 
-    bzero(&servaddr, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port   = htons(server_port);
-    if (inet_pton(AF_INET, argv[1], &servaddr.sin_addr) <= 0){
-    	perror("inet_pton error");
-    	exit(-1);
-    }
+	/// {{{
+	/* /1* SCC: Set up control connection *1/ */
+	/* /1* SCC1: Create a control socket *1/ */
+	/* if ( (controlfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) { */
+	/* 	perror("socket error"); */
+	/* 	exit(-1); */
+	/* } */
 
-    if (connect(controlfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0){
-    	perror("connect error");
-    	exit(-1);
-    }
+	/* /1* SCC2: Create the configuration for the control connection *1/ */
+	/* bzero(&serv_addr, sizeof(serv_addr)); */
+	/* serv_addr.sin_family = AF_INET; */
+	/* serv_addr.sin_port   = htons(server_port); */
+	/* if (inet_pton(AF_INET, argv[1], &serv_addr.sin_addr) <= 0){ */
+	/* 	perror("inet_pton error"); */
+	/* 	exit(-1); */
+	/* } */
 
-    /* CSCD58 Addition */
-    struct sockaddr_in addr;
-    socklen_t len = sizeof(addr);
+	/* /1* SCC3: Connect the control socket to the server (using the configuration) *1/ */
+	/* if (connect(controlfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) { */
+	/* 	perror("connect error"); */
+	/* 	exit(-1); */
+	/* } */
+	/// }}}
 
-    getsockname(controlfd, (struct sockaddr*) &addr, &len);
+	/* CSCD58 Addition */
+	struct sockaddr_in addr;
+	socklen_t len = sizeof(addr);
+	getsockname(controlfd, (struct sockaddr*) &addr, &len);
+	/* End CSCD58 Addition */
 
-    /* End CSCD58 Addition */
+	// TODO: should the port be 0?
+	if (setup_data_conn(&listenfd, &data_addr, 0) < 0) {
+		perror("data connection setup error");
+		exit(-1);
+	}
 
-    //set up data connection------------------------------------------------------
-    listenfd = socket(AF_INET, SOCK_STREAM, 0);
+	/// {{{
+	/* /1* SDC: Set up data connection *1/ */
+	/* /1* SDC1: Create a data socket for listening *1/ */
+	/* listenfd = socket(AF_INET, SOCK_STREAM, 0); */
 
-    bzero(&data_addr, sizeof(data_addr));
-    data_addr.sin_family      = AF_INET;
-    data_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    data_addr.sin_port        = htons(0);
+	/* /1* SDC2: Create the configuration for the data connection *1/ */
+	/* bzero(&data_addr, sizeof(data_addr)); */
+	/* data_addr.sin_family = AF_INET; */
+	/* data_addr.sin_addr.s_addr = htonl(INADDR_ANY); */
+	/* // TODO: should the port be 0? */
+	/* data_addr.sin_port = htons(0); */
 
-    bind(listenfd, (struct sockaddr*) &data_addr, sizeof(data_addr));
+	/* /1* SDC3: Bind the data socket (apply configuration) *1/ */
+	/* if (bind(listenfd, (struct sockaddr*) &data_addr, sizeof(data_addr)) < 0) { */
+	/* 	perror("bind error"); */
+	/* 	exit(-1); */
+	/* } */
 
-    listen(listenfd, LISTENQ);
+	/* /1* SDC4: Set the socket as passive (one that listens) with a backlog of */
+	/*  * 'LISTENQ' *1/ */
+	/* listen(listenfd, LISTENQ); */
+	/// }}}
+
+// ====================================================================
 
     //get ip address from control port
     get_ip_port(controlfd, ip, (int *)&x);
-    //x = 0;
-    printf("x: %d\n", x);
+	// TODO: ^ is the above not available in
+	// 'inet_ntop(..., serv_addr.sin_addr, ...)' and 'ntohs(serv_addr.sin_port)'?
+	// (in fact, that all get_ip_port does) or better yet, just argv[1],
+	// argv[2]?
     printf("ip: %s\n", ip);
     //get data connection port from listenfd
     get_ip_port(listenfd, str, (int *)&port);
+	// TODO: ^ is the above not available at SDC2?
 
     printf("Port: %d, str: %s\n",  port, str);
     convert(port, &n5, &n6);
 
-    while(1){
-
+    while (1) {
         bzero(command, strlen(command));
         //get command from user
-        code = get_command(command);
+        cmd = get_command(command);
 
         //user has entered quit
-        if(code == 4){
+        if (cmd == CMD_QUIT){
             char quit[1024];
             sprintf(quit, "QUIT");
             write(controlfd, quit, strlen(quit));
             bzero(quit, (int)sizeof(quit));
-            read(controlfd,quit, 1024);
+            read(controlfd, quit, 1024);
             printf("Server Response: %s\n", quit);
             break;
         }
         printf("command: %s\n", command);
 
-        //send PORT n1,n2,n3,n4,n5,n6
+        //send "PORT n1,n2,n3,n4,n5,n6"
         bzero(str, (int)sizeof(str));
         get_port_string(str, ip, n5, n6);
-
         write(controlfd, str, strlen(str));
         bzero(str, (int)sizeof(str));
-        
+
         /* CSCD58 Addition */
         int i = 0;
         for (i = 0; i < NDATAFD; i++) {
@@ -753,18 +877,18 @@ int main(int argc, char **argv){
 
         printf("Data connection Established...\n");
 
-        if(code == 1){
-            if(do_ls(controlfd, datafds[0], command) < 0){
+        if (cmd == CMD_LS) {
+            if (do_ls(controlfd, datafds[0], command) < 0) {
                 close_data_connections(datafds);
                 continue;
             }
-        }else if(code == 2){
-            if(do_get(controlfd, datafds, command) < 0){
+        } else if (cmd == CMD_GET) {
+            if (do_get(controlfd, datafds, command) < 0) {
                 close_data_connections(datafds);
                 continue;
             }
-        }else if(code == 3){
-            if(do_put(controlfd, datafds[0], command) < 0){
+        } else if(cmd == CMD_PUT) {
+            if (do_put(controlfd, datafds[0], command) < 0) {
                 close_data_connections(datafds);
                 continue;
             }
