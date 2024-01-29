@@ -1,16 +1,18 @@
 #Makefile
+LIBS = -lpthread
+CFLAGS = -Wall
+CC = gcc -g
+# CC = gcc
 
 COMPRESSDEP = Alloc.c CpuArch.c LzFind.c LzFindMt.c LzFindOpt.c \
 	LzmaDec.c LzmaEnc.c LzmaLib.c Threads.c comp.c
-
 ENCRYPTDEP = enc.c aes.c
-
 PARDEP = ftputil.c
 
 make: ftpclient.c ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) | bin
-	gcc -g -Wall -lpthread ftpclient.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpclient
+	$(CC) $(CFLAGS) $(LIBS) ftpclient.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpclient
 	mv ftpclient ../bin/ftpclient/
-	gcc -g -Wall -lpthread ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpserver
+	$(CC) $(CFLAGS) $(LIBS) ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpserver
 	mv ftpserver ../bin/ftpserver/
 
 bin:
