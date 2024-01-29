@@ -1,18 +1,20 @@
 # Acknowledgements
 
-This CSCD58 Final Project is comprised of 3 major, distinct contributions.
+This CSCD58 Final Project is comprised of 4 major, distinct contributions.
 
 ## 1. Basic FTP Client/Server by users pranav93y and nishant-sachdeva
 [https://github.com/pranav93y/Basic-FTP-Client-Server](https://github.com/pranav93y/Basic-FTP-Client-Server)  
-It's worth noting that while it served at the FTP implementation that we made our
-extensions on (as extensions to FTP was the focus of our project), this code
-base was not fully functional. 2 small but important changes had to made
-(and which are marked accordingly with comments) so that non-text files
-could be both put and retrieved by a client. The original code only supports
-text files and starts to break when it encounter non-terminal null bytes.
+It's worth noting that while it ultimately was able to serve as the FTP
+implementation on which we made our extensions (as *extensions* to FTP was the
+focus of our project), this code base was not fully functional. 2 small but
+important changes had to made (and which are marked accordingly with comments)
+so that non-text files could be both put and retrieved by a client. The
+original code only supports text files and would break upon encountering null
+bytes which were used for purposes other than null-terminating a string.
 Instructions on how to use these programs found in this README are partially
 modified (just for brevity, and to match other small changes we made (such as
 removing an "-out" prefix from retrieved files) from the original instructions.
+
 ## 2. The 7-Zip LZMA SDK
 [https://7-zip.org/sdk.html](https://7-zip.org/sdk.html)  
 The compression algorithm used in our extension to FTP was the LZMA aka the
@@ -67,7 +69,7 @@ ftpserver.c
 Makefile
 ```
 
-## Other Contributors
+## 4. Other Contributors
 Several minor contributions came from Wikipedia. Specifically, the `ROTC` definition, 
 as well as the `initialize_aes_sbox()` and `g_mul()` functions, all in `aes.c`.
 
