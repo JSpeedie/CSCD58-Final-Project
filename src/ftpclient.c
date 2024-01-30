@@ -38,6 +38,41 @@ int get_user_input(char * buffer){
 }
 
 
+// TODO: not sure if this function is endianness safe? I've cleaned it up,
+// but the code is still the student code
+/** Takes a port 'port' and modifies the uint8_ts at 'p1' and 'p2' such that the
+ * former represents the 8 most significant bits of 'port' and the latter
+ * represents the 8 least significant bits.
+ * \param 'port' the port number.
+ * \param '*p1' a pointer to a uint8_t that will be modified to contain the 8 most
+ *     signifiant bits of 'port'.
+ * \param '*p2' a pointer to a uint8_t that will be modified to contain the 8 least
+ *     signifiant bits of 'port'.
+ * \return void.
+ */
+void split_port(uint16_t port, uint8_t *p1, uint8_t *p2) {
+	int x = 1;
+	*p1 = 0;
+	*p2 = 0;
+	/* Set the 8 least significant bits of '(*p2)' to the
+	   8 least significant bits of 'port' */
+	for (int i = 0; i < 8; i++) {
+		*p2 = (*p2)|(port & x);
+		x = x << 1;
+	}
+
+	/* Set the 8 least significant bits of '(*p1)' to the
+	   8 most significant bits of 'port' */
+	port = port >> 8;
+	x = 1;
+
+	for (int i = 0; i < 8; i++) {
+		*p1 = (*p1)|(port & x);
+		x = x << 1;
+	}
+}
+
+
 /* Takes a string representing an ip address and two ints representing the 8
  * least and 8 most significant bits in a port number and modifies 'str' to
  * contain a port command of the format specified by FTP.
@@ -52,7 +87,7 @@ int get_user_input(char * buffer){
  *     significant bits of the port number.
  * \return void.
  */
-void generate_port_command(char *str, char *ip, int p1, int p2) {
+void generate_port_command(char *str, char *ip, uint16_t port) {
 	/* Generate the port command, as specified at page 28 of:
 	 * https://www.ietf.org/rfc/rfc959.txt */
 
@@ -67,6 +102,10 @@ void generate_port_command(char *str, char *ip, int p1, int p2) {
 			ip_temp[i] = ',';
 		}
 	}
+
+	uint8_t p1;
+	uint8_t p2;
+	split_port(port, &p1, &p2);
 
 	sprintf(str, "PORT %s,%d,%d", ip_temp, p1, p2);
 }
@@ -155,35 +194,7 @@ int get_command(char *command){
 }
 
 
-// TODO: what does this function do? what are p1 and p2?
-// my best guess as to what this function does at the moment is that it
-// takes a port and modifies the ints at 'p1' and 'p2' such that the former
-// represents bits 9-16 of 'port' and the latter represents bits 1-8.
-int convert(uint16_t port, int *p1, int *p2) {
-	int i = 0;
-	int x = 1;
-	*p1 = 0;
-	*p2 = 0;
-	/* Set the first (i.e. the least significant) 8 bits of '(*p2)' to the
-	   first 8 bits (bits 1-8) of 'port' */
-	for (i = 0; i < 8; i++) {
-		*p2 = (*p2)|(port & x);
-		x = x << 1;
-	}
-
-	/* Set the first (i.e. the least significant) 8 bits of '(*p1)' to
-	   bits 9-16 of 'port' */
-	port = port >> 8;
-	x = 1;
-
-	for (i = 0; i < 8; i++) {
-		*p1 = (*p1)|(port & x);
-		x = x << 1;
-	}
-	return 1;
-}
-
-
+// TODO: clean up this function, add brief documentation
 int get_filename(char *input, char *fileptr){
     char cpy[1024];
     char *filename = NULL;
@@ -230,6 +241,32 @@ int do_dh(int controlfd, int datafd, uint32_t key[4]) {
 /* End CSCD58 Addition - Encryption */
 
 
+/** Perform the necessary operations to enact the QUIT FTP service command.
+ *
+ * \param 'controlfd' a file descriptor representing the control connection
+ *     of the FTP.
+ * \return 0 upon success, a negative int upon failure.
+ */
+int do_quit(int controlfd) {
+	char quit[1024];
+	sprintf(quit, "QUIT");
+	int quit_len = strlen(quit);
+
+	ssize_t nbytes = write(controlfd, quit, quit_len);
+	if ((long long) nbytes < (long long) quit_len) {
+		return -1;
+	}
+
+	bzero(quit, (int)sizeof(quit));
+	// TODO: check for errors on read?
+	read(controlfd, quit, 1024);
+	printf("Server Response: %s\n", quit);
+
+	return 0;
+}
+
+
+// TODO: possibly break up this function, add brief documentation
 int do_ls(int controlfd, int datafd, char *input){
 
     char filelist[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp;
@@ -306,7 +343,9 @@ int do_ls(int controlfd, int datafd, char *input){
     return 1;
 }
 
-int do_get(int controlfd, int *datafds, char *input){
+
+// TODO: break up this function, add brief documentation
+int do_get(int controlfd, int *datafds, char *input) {
 	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp, temp1[1024];
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
@@ -519,6 +558,8 @@ int do_get(int controlfd, int *datafds, char *input){
 	return 1;
 }
 
+
+// TODO: break up this function, add brief documentation
 int do_put(int controlfd, int datafd, char *input){
 	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], sendline[MAXLINE+1], *temp, temp1[1024];
 	bzero(filename, (int)sizeof(filename));
@@ -667,6 +708,7 @@ int do_put(int controlfd, int datafd, char *input){
 	return 1;
 }
 
+
 /* Set up control connection */
 int setup_control_conn(int * controlfd, struct sockaddr_in * serv_addr, \
 	char * ip_addr, uint16_t port) {
@@ -725,9 +767,9 @@ int setup_data_conn(int * listenfd, struct sockaddr_in * data_addr, \
 
 
 int main(int argc, char **argv) {
-	int server_port, controlfd, listenfd, datafds[NDATAFD], cmd, p1, p2;
+	int server_port, controlfd, listenfd, datafds[NDATAFD], cmd;
 	struct sockaddr_in serv_addr, data_addr;
-	char command[1024], ip[INET_ADDRSTRLEN], str[MAXLINE+1];
+	char command[1024], ip[INET_ADDRSTRLEN], port_command[MAXLINE+1];
 
 	if (argc != 3) {
 		printf("Invalid Number of Arguments...\n");
@@ -739,11 +781,12 @@ int main(int argc, char **argv) {
 	strncpy(ip, argv[1], INET_ADDRSTRLEN);
 	sscanf(argv[2], "%d", &server_port);
 
+	/* Setup control and data connections, as required by the FTP at page 8 of:
+	 * https://www.ietf.org/rfc/rfc959.txt */
 	if (setup_control_conn(&controlfd, &serv_addr, argv[1], server_port) < 0) {
 		perror("control connection setup error");
 		exit(-1);
 	}
-
 	// TODO: should the port be 0?
 	if (setup_data_conn(&listenfd, &data_addr, 0) < 0) {
 		perror("data connection setup error");
@@ -757,38 +800,32 @@ int main(int argc, char **argv) {
 		exit(-1);
 	}
 	printf("IP: %s, Port: %d\n", ip, client_conn_port);
-	// TODO: what does this convert() function do here?
-    convert((uint16_t) client_conn_port, &p1, &p2);
+	/* Produce the port command of structure: "PORT h1,h2,h3,h4,p1,p2" */
+	bzero(port_command, (int) sizeof(port_command));
+	generate_port_command(port_command, ip, client_conn_port);
 
-    while (1) {
-        bzero(command, strlen(command));
-        //get command from user
-        cmd = get_command(command);
+	while (1) {
+		bzero(command, strlen(command));
+		//get command from user
+		cmd = get_command(command);
 
-        //user has entered quit
-        if (cmd == CMD_QUIT){
-            char quit[1024];
-            sprintf(quit, "QUIT");
-            write(controlfd, quit, strlen(quit));
-            bzero(quit, (int)sizeof(quit));
-            read(controlfd, quit, 1024);
-            printf("Server Response: %s\n", quit);
-            break;
-        }
+		/* If the user entered the "quit" command at the prompt */
+		if (cmd == CMD_QUIT){
+			// TODO: double check this if statement. What is it checking for?
+			// In which (if any) circumstances should the program then
+			// close_data_connections()?
+			if (do_quit(controlfd) < 0) {
+				close_data_connections(datafds);
+			}
+			break;
+		}
 
 		if (DEBUG_OUTPUT == 1) {
 			fprintf(stdout, "command: %s\n", command);
 		}
 
-		/* TODO: What does this block of code do? Is it necessary?
-		 * Update: just removed it, it broke the program. The question is:
-		 * is this some student silliness, or is this part of FTP?
-		 */
-        //send "PORT h1,h2,h3,h4,p1,p2"
-        bzero(str, (int)sizeof(str));
-        generate_port_command(str, ip, p1, p2);
-        write(controlfd, str, strlen(str));
-        bzero(str, (int)sizeof(str));
+		/* Send the port command that was constructed earlier */
+		write(controlfd, port_command, strlen(port_command));
 
         /* CSCD58 Addition - Parallelization */
         int i = 0;
@@ -802,26 +839,26 @@ int main(int argc, char **argv) {
 			fprintf(stdout, "Data connection established. Ready to receive data!\n");
 		}
 
-        if (cmd == CMD_LS) {
-            if (do_ls(controlfd, datafds[0], command) < 0) {
-                close_data_connections(datafds);
-                continue;
-            }
-        } else if (cmd == CMD_GET) {
-            if (do_get(controlfd, datafds, command) < 0) {
-                close_data_connections(datafds);
-                continue;
-            }
-        } else if(cmd == CMD_PUT) {
-            if (do_put(controlfd, datafds[0], command) < 0) {
-                close_data_connections(datafds);
-                continue;
-            }
-        }
-        /* CSCD58 Addition */
-        close_data_connections(datafds);
-        /* End CSCD58 Addition */
-    }
-    close(controlfd);
+		if (cmd == CMD_LS) {
+			if (do_ls(controlfd, datafds[0], command) < 0) {
+				close_data_connections(datafds);
+				continue;
+			}
+		} else if (cmd == CMD_GET) {
+			if (do_get(controlfd, datafds, command) < 0) {
+				close_data_connections(datafds);
+				continue;
+			}
+		} else if(cmd == CMD_PUT) {
+			if (do_put(controlfd, datafds[0], command) < 0) {
+				close_data_connections(datafds);
+				continue;
+			}
+		}
+		/* CSCD58 Addition - Parallelization? */
+		close_data_connections(datafds);
+		/* End CSCD58 Addition - Parallelization? */
+	}
+	close(controlfd);
 	return TRUE;
 }
