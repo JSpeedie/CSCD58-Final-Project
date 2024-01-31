@@ -1,13 +1,15 @@
 #include <stdint.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
-#include "enc.h"
 #include "aes.h"
+#include "enc.h"
 
 #define  READSIZE 1024
 
+
+// TODO: what's going on here?
 void init_enc() {
     printf("Init aes");
     //initialize_aes_sbox(sbox, sboxinv);
@@ -54,10 +56,11 @@ void to_row_order(uint8_t text[16]) {
     }
 }
 
+// TODO: is there any way we can avoid doing some jank "in_name is really 'cat
+// [filepath]'" stuff here? It seems misleading and also clunky
 int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
     FILE *in;
     FILE *fp;
-    extern FILE *popen();
     size_t read_len;
     char readbuf[READSIZE+1];
     char writebuf[READSIZE+17];
@@ -71,7 +74,7 @@ int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
     
     initialize_aes_sbox(sbox, sboxinv);
 
-    if (!(in = popen(in_name, "r"))) {
+    if ((in = fopen(in_name, "rb")) == NULL) {
         return -1;
     }
     
@@ -125,7 +128,7 @@ int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
         fwrite(text, 1, 16, fp);
     }
     
-    pclose(in);
+    fclose(in);
     fclose(fp);
     
     return 0;
@@ -134,7 +137,6 @@ int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
 int dec_file(char in_name[], char out_name[], uint32_t key[4]) {
     FILE *in;
     FILE *fp;
-    extern FILE *popen();
     size_t read_len;
     size_t read_len_prev;
     char readbuf[READSIZE+1];
@@ -150,7 +152,7 @@ int dec_file(char in_name[], char out_name[], uint32_t key[4]) {
     
     initialize_aes_sbox(sbox, sboxinv);
 
-    if (!(in = popen(in_name, "r"))) {
+    if (!(in = fopen(in_name, "rb"))) {
         return -1;
     }
     
@@ -195,7 +197,7 @@ int dec_file(char in_name[], char out_name[], uint32_t key[4]) {
         fwrite(writebuf, 1, read_len - padnum, fp);
     }
     
-    pclose(in);
+    fclose(in);
     fclose(fp);
     
     return 0;
