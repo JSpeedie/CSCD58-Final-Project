@@ -7,12 +7,16 @@
 #define PEC_HEADER_SIZE 9
 #define CHUNK_HEADER_SIZE 8
 
-int read_bytes(unsigned char *ret, size_t num_bytes, FILE *f);
+int read_bytes(unsigned char * ret, size_t num_bytes, FILE * f);
 
 unsigned char * read_chunk_of_file(FILE * f, uint64_t * ret_len);
 
-void clear_file(char* file);
+void clear_file(char * file);
 
-int comp_file(char * inputfilepath, char *outputfilepath);
+char * temp_compression_name(char * filename);
+
+char * temp_encryption_name(char * filename);
+
+int comp_file(char * inputfilepath, char * outputfilepath);
 
 int uncomp_file(char * inputfilepath, char * outputfilepath);

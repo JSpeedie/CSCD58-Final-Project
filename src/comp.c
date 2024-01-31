@@ -11,7 +11,20 @@
 #include "LzmaLib.h"
 #include "comp.h"
 
-int read_bytes(unsigned char *ret, size_t num_bytes, FILE *f) {
+
+/** Takes an array of chars '*ret', and an open file '*f' and attempts to read
+ * 'num_bytes' bytes from the file, filling '*ret' with what it read.
+ *
+ * \param '*ret' a pointer to an array chars at least 'num_bytes' long which
+ *     will be modified to contain the characters (or bytes) read from the
+ *     file.
+ * \param 'num_bytes' the number of bytes that should be read from the file.
+ * \param '*f' an open file from which the function will attempt to read the
+ *     bytes.
+ * \return 0 on success, or a negative int upon failure.
+ *
+ */
+int read_bytes(unsigned char * ret, size_t num_bytes, FILE * f) {
 	/* {{{ */
 	size_t nmem_read = 0;
 	if (num_bytes != (nmem_read = fread(ret, 1, num_bytes, f)) ) {
@@ -23,11 +36,24 @@ int read_bytes(unsigned char *ret, size_t num_bytes, FILE *f) {
 	/* }}} */
 }
 
+
+/** Takes an open file and a pointer to a uint64_t, and attempts to read a
+ * chunk of the file, returning a pointer to a malloc'd array of characters
+ * representing the contents of the chunk read, and modifying '*ret_len' to
+ * contain the length of the returned array. The returned character array
+ * must be freed by the caller of this function.
+ *
+ * \param '*f' an open file from which a chunk read will be attempted.
+ * \param '*ret_len' a pointer to a uint64_t which will be modified to contain
+ *     the length of the returned character array.
+ * \return a pointer to an array of characters of '(*ret_len)' length on
+ *     success, or NULL upon failure.
+ *
+ */
 unsigned char * read_chunk_of_file(FILE * f, uint64_t * ret_len) {
 	/* {{{ */
-	unsigned char * ret = malloc(MAX_CHUNK);
-	/* Alloc call failed, exit */
-	if (ret == NULL) {
+	unsigned char * ret;
+	if ( (ret = malloc(MAX_CHUNK)) == NULL) {
 		fprintf(stderr, "ERROR: read_chunk_of_file(): could not allocate buffer for file\n");
 		return NULL;
 	}
@@ -40,7 +66,13 @@ unsigned char * read_chunk_of_file(FILE * f, uint64_t * ret_len) {
 	/* }}} */
 }
 
-void clear_file(char* file) {
+
+/** Writes nothing to a file, clearing it.
+ *
+ * \param '*file' the file path for the file to be wiped
+ * \return void
+ */
+void clear_file(char * file) {
 	/* {{{ */
 	FILE* victim = fopen(file, "w");
 	if (victim == NULL) {
@@ -54,6 +86,96 @@ void clear_file(char* file) {
 	/* }}} */
 }
 
+
+/** Take a file name and returns a malloc'd string containing a temp file name
+ * which has the compression extension appended. The returned string must
+ * be freed by the caller of this function.
+ *
+ * \param '*filename' the name of the file we wish to generate a temporary
+ *     compression name for.
+ * \return a pointer to the temp name string on success, and NULL on failure.
+ */
+char * temp_compression_name(char * filename) {
+	/* {{{ */
+	// TODO: get this working with the ".enc" definition in the header
+	char * c_ext = ".comp";
+	/* char * c_ext = COMP_EXT; */
+	int c_ext_len = strlen(c_ext);
+
+	/* GTNC: Generate a temp name for our compressed file */
+	/* GTNC1: Calculate how much space we need for the file name for the
+	 * compressed file's file name and create a zero'd array for it. + 7 for
+	 * 'mkstemp()' "-XXXXXX" */
+	char *c_out_fp = calloc(strlen(filename) + c_ext_len + 7 + 1, sizeof(char));
+
+	/* GTNC2: Fill the string with the filename + the compression extension +
+	 * the suffix characters 'mkstemp()' requires and will modify */
+	// TODO: can this construction not be done faster or more efficiently?
+	strncpy(&c_out_fp[0], filename, strlen(filename));
+	strncat(&c_out_fp[0], c_ext, c_ext_len + 1);
+	strncat(&c_out_fp[0], "-XXXXXX", 8);
+
+	/* GTNC3: Generate a temp name for our compressed file with 'mkstemp()' */
+	int r;
+	if ( (r = mkstemp(c_out_fp)) == -1) return NULL;
+	/* ... close the open FD and deleting the temp file created as we intend to
+	 * use its name later */
+	close(r);
+	unlink(c_out_fp);
+
+	return c_out_fp;
+	/* }}} */
+}
+
+
+/** Take a file name and returns a malloc'd string containing a temp file name
+ * which has the encryption extension appended. The returned string must
+ * be freed by the caller of this function.
+ *
+ * \param '*filename' the name of the file we wish to generate a temporary
+ *     encryption name for.
+ * \return a pointer to the temp name string on success, and NULL on failure.
+ */
+char * temp_encryption_name(char * filename) {
+	/* {{{ */
+	// TODO: get this working with the ".enc" definition in the header
+	char * e_ext = ".enc";
+	/* char * e_ext = ENC_EXT; */
+	int e_ext_len = strlen(e_ext);
+
+	/* GTNE: Generate a temp name for our encrypted file */
+	/* GTNE1: Calculate how much space we need for the file name for the
+	 * encrypted file's file name and create a zero'd array for it. + 7 for
+	 * 'mkstemp()' "-XXXXXX" */
+	char *e_out_fp = calloc(strlen(filename) + e_ext_len + 7 + 1, sizeof(char));
+
+	/* GTNE2: Fill the string with the filename + the encryption extension +
+	 * the suffix characters 'mkstemp()' requires and will modify */
+	// TODO: can this construction not be done faster or more efficiently?
+	strncpy(&e_out_fp[0], filename, strlen(filename));
+	strncat(&e_out_fp[0], e_ext, e_ext_len + 1);
+	strncat(&e_out_fp[0], "-XXXXXX", 8);
+
+	/* GTNE3: Generate a temp name for our encrypted file with 'mkstemp()' */
+	int r;
+	if ( (r = mkstemp(e_out_fp)) == -1) return NULL;
+	/* ... close the open FD and deleting the temp file created as we intend to
+	 * use its name later */
+	close(r);
+	unlink(e_out_fp);
+
+	return e_out_fp;
+	/* }}} */
+}
+
+
+/** Takes an input file path, compresses the file at that location, writing
+ * the compressed result to the file at the output file path.
+ *
+ * \param '*inputfilepath' the path to the input file.
+ * \param '*outputfilepath' the path to the output file.
+ * \return 0 upon success, and a negative int upon failure.
+ */
 int comp_file(char * inputfilepath, char * outputfilepath) {
 	/* {{{ */
 	struct stat s;
@@ -82,10 +204,12 @@ int comp_file(char * inputfilepath, char * outputfilepath) {
 	uint64_t inbuf_len;
 	unsigned char *inbuf = NULL;
 
+	// TODO: this documentation blurb and the comments within the while loop
+	// may need updating.
 	/* Read through a file, chunk by chunk, compressing each chunk, preparing
-	 * headers that describe the compressed chunk, and write the headers +
-	 * the compressed chunk to the output file, repeating until it has read
-	 * every byte of the input file */
+	 * headers that describe the compressed chunk. As each header/chunk pair is
+	 * prepared, they will be written to the output file, repeating until it
+	 * has read every byte of the input file */
 	while (bytes_left > 0) {
 		/* 1. Read the largest section we can */
 		inbuf = read_chunk_of_file(in_file, &inbuf_len);
@@ -165,6 +289,15 @@ int comp_file(char * inputfilepath, char * outputfilepath) {
 	/* }}} */
 }
 
+
+/** Takes an input file path, which points to a file compressed by
+ * 'comp_file()' and uncompresses it, writing the uncompressed result to the
+ * file at the output file path.
+ *
+ * \param '*inputfilepath' the path to the input file.
+ * \param '*outputfilepath' the path to the output file.
+ * \return 0 upon success, and a negative int upon failure.
+ */
 int uncomp_file(char * inputfilepath, char * outputfilepath) {
 	/* {{{ */
 	struct stat s;
