@@ -40,12 +40,14 @@ int read_port_command(char *str, char *client_ip, uint16_t *client_port) {
 
 	sprintf(client_ip, "%s.%s.%s.%s", h1, h2, h3, h4);
 
+	/* Reconstruct the port number from the 2 char inputs */
 	p1_i = atoi(p1);
 	p2_i = atoi(p2);
 	(*client_port) = (p1_i << 8) + p2_i;
 
 	return 0;
 }
+
 
 int setup_data_connection(int *fd, char *client_ip, int client_port, int server_port) {
 	
@@ -94,6 +96,7 @@ int get_filename(char *input, char *fileptr) {
 	char *filename = NULL;
 	filename = strtok(input, " ");
 	filename = strtok(NULL, " ");
+
 	if (filename == NULL) {
 		return -1;
 	} else {
@@ -154,9 +157,11 @@ int do_list(int controlfd, int datafd, char *input){
 	bzero(filelist, (int)sizeof(filelist));
 
 	if(get_filename(input, filelist) > 0){
-		printf("Filelist Detected\n");
+		// TODO: what does it mean to have a filelist detected? did the user
+		// specify a subdirectory?
+		printf("(%d) Filelist Detected\n", getpid());
 		sprintf(str, "ls %s", filelist);
-		printf("Filelist: %s\n", filelist);
+		printf("(%d) Filelist: %s\n", getpid(), filelist);
 		trim(filelist);
 		//verify that given input is valid
 		/*struct stat statbuf;
@@ -166,38 +171,38 @@ int do_list(int controlfd, int datafd, char *input){
     		write(controlfd, sendline, strlen(sendline));
     		return -1;
 		}*/
+		// TODO: does this opendir() solution work? would stat() not be better?
     	DIR *dir = opendir(filelist);
     	if(!dir){
     		sprintf(sendline, "550 No Such File or Directory\n");
     		write(controlfd, sendline, strlen(sendline));
     		return -1;
-    	}else{closedir(dir);}
-
-	}else{
+		} else {
+			closedir(dir);
+		}
+	} else {
 		sprintf(str, "ls");
 	}
 
-	 //initiate file pointer for popen()
-    FILE *in;
-    extern FILE *popen();
+	FILE *in;
 
-    if (!(in = popen(str, "r"))) {
-    	sprintf(sendline, "451 Requested action aborted. Local error in processing\n");
-    	write(controlfd, sendline, strlen(sendline));
-        return -1;
-    }
+	if (!(in = popen(str, "r"))) {
+		sprintf(sendline, "451 Requested action aborted. Local error in processing.\n");
+		write(controlfd, sendline, strlen(sendline));
+		return -1;
+	}
 
-    while (fgets(sendline, MAXLINE, in) != NULL) {
-        write(datafd, sendline, strlen(sendline));
-        printf("%s", sendline);
-        bzero(sendline, (int)sizeof(sendline));
-    }
+	while (fgets(sendline, MAXLINE, in) != NULL) {
+		write(datafd, sendline, strlen(sendline));
+		printf("%s", sendline);
+		bzero(sendline, (int)sizeof(sendline));
+	}
 
-    sprintf(sendline, "200 Command OK");
-    write(controlfd, sendline, strlen(sendline));
-    pclose(in);
+	sprintf(sendline, "200 Command OK");
+	write(controlfd, sendline, strlen(sendline));
+	pclose(in);
 
-    return 1;
+	return 1;
 }
 
 
@@ -209,18 +214,21 @@ int do_retr(int controlfd, int *datafds, char *input){
     fd_set wtset;
     int maxfdp1;
 
+	/* CSCD58 addition - Encryption */
     uint32_t key[4];
     do_dh(controlfd, datafds[0], key);
+	/* CSCD58 end of addition - Encryption */
 
 	if(get_filename(input, filename) > 0){
+		// TODO: what's going on here with this 'str' and 'cat ' stuff?
 		sprintf(str, "cat %s", filename);
 
-		if((access(filename, F_OK)) != 0){
+		if (access(filename, F_OK) != 0) {
 			sprintf(sendline, "550 No Such File or Directory\n");
 			write(controlfd, sendline, strlen(sendline));
 			return -1;
 		}
-	}else{
+	} else {
 		printf("Filename Not Detected\n");
 		sprintf(sendline, "450 Requested file action not taken.\nFilename Not Detected\n");
 		write(controlfd, sendline, strlen(sendline));
@@ -228,41 +236,45 @@ int do_retr(int controlfd, int *datafds, char *input){
 	}
 
 	/* CSCD58 addition - Compression */
-	char * encsuffix = ".enc";
-	int encsuffix_len = strlen(encsuffix);
-	char * compsuffix = ".comp";
-	int compsuffix_len = strlen(compsuffix);
-	int compoutputfilepathlen = strlen(filename) + compsuffix_len + 7 + 1;
-	char compoutputfilepath[compoutputfilepathlen];
-	bzero(compoutputfilepath, compoutputfilepathlen);
-	strncpy(&compoutputfilepath[0], filename, strlen(filename));
-	strncat(&compoutputfilepath[0], compsuffix, compsuffix_len + 1);
-	/* Generate a temp name for our compressed .comp file */
-	strncat(&compoutputfilepath[0], "-XXXXXX", 8);
-	int r = mkstemp(compoutputfilepath);
-	close(r);
-	unlink(compoutputfilepath);
+	char * c_out_fp;
+	char * e_out_fp;
 
-	if (0 != comp_file(filename, compoutputfilepath)) {
+	/* Get temp name for compressed version of the file */
+	if ( (c_out_fp = temp_compression_name(filename)) == NULL) {
 		fprintf(stderr, "ERROR: could not compress file!\n");
+		sprintf(sendline, "451 Requested action aborted. Local error in processing\n");
+		write(controlfd, sendline, strlen(sendline));
+		return -1;
 	}
-	sprintf(str, "cat %s", compoutputfilepath);
 
-	int encoutputfilepathlen = strlen(filename) + compsuffix_len + encsuffix_len + 7 + 1;
-	char encoutputfilepath[encoutputfilepathlen];
-	bzero(encoutputfilepath, encoutputfilepathlen);
-	strncpy(&encoutputfilepath[0], filename, strlen(filename));
-	strncat(&encoutputfilepath[0], compsuffix, compsuffix_len + 1);
-	strncat(&encoutputfilepath[0], encsuffix, encsuffix_len + 1);
-	/* Generate a temp name for our encrypted .enc file */
-	strncat(&encoutputfilepath[0], "-XXXXXX", 8);
-	r = mkstemp(encoutputfilepath);
-	close(r);
-	unlink(encoutputfilepath);
+	/* Compress content of file at 'filename' writing output to file at
+	 * 'c_out_fp' */
+	if (0 != comp_file(filename, c_out_fp)) {
+		fprintf(stderr, "ERROR: could not compress file!\n");
+		sprintf(sendline, "451 Requested action aborted. Local error in processing\n");
+		write(controlfd, sendline, strlen(sendline));
+		return -1;
+	}
 
-	enc_file(str, encoutputfilepath, key);
+	/* Get temp name for encrypted version of the file */
+	if ( (e_out_fp = temp_compression_name(c_out_fp)) == NULL) {
+		fprintf(stderr, "ERROR: could not encrypt file!\n");
+		sprintf(sendline, "451 Requested action aborted. Local error in processing\n");
+		write(controlfd, sendline, strlen(sendline));
+		return -1;
+	}
 
-	sprintf(str, "cat %s", encoutputfilepath);
+	/* Encrypt content of file at 'filename' writing output to file at
+	 * 'e_out_fp' */
+	if (0 != enc_file(c_out_fp, e_out_fp, key)) {
+		fprintf(stderr, "ERROR: could not encrypt file!\n");
+		sprintf(sendline, "451 Requested action aborted. Local error in processing\n");
+		write(controlfd, sendline, strlen(sendline));
+		return -1;
+	}
+
+	// TODO: what does this do? This looks like testing code
+	sprintf(str, "cat %s", e_out_fp);
 	/* CSCD58 end of addition - Compression */
 
 	FILE *in;
@@ -320,15 +332,20 @@ int do_retr(int controlfd, int *datafds, char *input){
 	pclose(in);
 	/* CSCD58 addition - Compression */
 	if (KEEP_TEMP_ENC_FILES != 1) {
-		if (0 != remove(encoutputfilepath)) {
+		if (0 != remove(e_out_fp)) {
 			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
 		} 
 	}
 	if (KEEP_TEMP_COMP_FILES != 1) {
-		if (0 != remove(compoutputfilepath)) {
+		if (0 != remove(c_out_fp)) {
 			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
 		} 
 	}
+
+	/* Free dynamically allocated memory */
+	free(c_out_fp);
+	free(e_out_fp);
+
 	/* CSCD58 end of addition - Compression */
 	return 1;
 }

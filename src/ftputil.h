@@ -11,6 +11,8 @@
 #define CMD_GET 2
 #define CMD_PUT 3
 #define CMD_QUIT 4
+#define ENC_EXT ".enc"
+#define COMP_EXT ".comp"
 
 #define FD_SETS(fds, rdset, n, i)\
   do {\
