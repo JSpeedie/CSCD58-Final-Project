@@ -13,6 +13,8 @@ unsigned char * read_chunk_of_file(FILE * f, uint64_t * ret_len);
 
 void clear_file(char * file);
 
+char * compression_name(char * filename);
+
 char * temp_compression_name(char * filename);
 
 char * temp_encryption_name(char * filename);

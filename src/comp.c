@@ -87,6 +87,36 @@ void clear_file(char * file) {
 }
 
 
+/** Take a file name and returns a malloc'd string containing a file name
+ * which has the compression extension appended. The returned string must
+ * be freed by the caller of this function.
+ *
+ * \param '*filename' the name of the file we wish to generate a compression
+ *     name for.
+ * \return a pointer to the name string on success, and NULL on failure.
+ */
+char * compression_name(char * filename) {
+	/* {{{ */
+	// TODO: get this working with the ".enc" definition in the header
+	char * c_ext = ".comp";
+	/* char * c_ext = COMP_EXT; */
+	int c_ext_len = strlen(c_ext);
+
+	/* GTNC: Generate the name for our compressed file */
+	/* GTNC1: Calculate how much space we need for the file name for the
+	 * compressed file's file name and create a zero'd array for it. */
+	char *c_out_fp = calloc(strlen(filename) + c_ext_len + 1, sizeof(char));
+
+	/* GTNC2: Fill the string with the filename + the compression extension */
+	// TODO: can this construction not be done faster or more efficiently?
+	strncpy(&c_out_fp[0], filename, strlen(filename));
+	strncat(&c_out_fp[0], c_ext, c_ext_len + 1);
+
+	return c_out_fp;
+	/* }}} */
+}
+
+
 /** Take a file name and returns a malloc'd string containing a temp file name
  * which has the compression extension appended. The returned string must
  * be freed by the caller of this function.
@@ -188,7 +218,7 @@ int comp_file(char * inputfilepath, char * outputfilepath) {
 
 	FILE *in_file = fopen(inputfilepath, "rb");
 	if (in_file == NULL) {
-		perror("fopen (main)");
+		perror("fopen (comp_file)");
 		return -1;
 	}
 
@@ -196,7 +226,7 @@ int comp_file(char * inputfilepath, char * outputfilepath) {
 
 	FILE *out_file = fopen(outputfilepath, "ab");
 	if (out_file == NULL) {
-		perror("fopen (main)");
+		perror("fopen (comp_file)");
 		return -1;
 	}
 
@@ -305,7 +335,7 @@ int uncomp_file(char * inputfilepath, char * outputfilepath) {
 
 	FILE * in_file = fopen(inputfilepath, "rb");
 	if (in_file == NULL) {
-		perror("fopen (main)");
+		perror("fopen (uncomp_file)");
 		return -1;
 	}
 
@@ -313,7 +343,7 @@ int uncomp_file(char * inputfilepath, char * outputfilepath) {
 
 	FILE * out_file = fopen(outputfilepath, "ab");
 	if (out_file == NULL) {
-		perror("fopen (main)");
+		perror("fopen (uncomp_file)");
 		return -1;
 	}
 

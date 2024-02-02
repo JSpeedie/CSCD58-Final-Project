@@ -346,10 +346,10 @@ int do_ls(int controlfd, int datafd, char *input){
 
 // TODO: break up this function, add brief documentation
 int do_get(int controlfd, int *datafds, char *input) {
-	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], *temp, temp1[1024];
+	char filename[256], serv_cmd[MAXLINE+1], recvline[MAXLINE+1], *temp;
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
-	bzero(str, (int)sizeof(str));
+	bzero(serv_cmd, (int)sizeof(serv_cmd));
 	int n = 0;
 	uint32_t p[NDATAFD];
 	uint16_t rem[NDATAFD];
@@ -369,30 +369,30 @@ int do_get(int controlfd, int *datafds, char *input) {
 		return -1;
 	}
 
-	sprintf(str, "RETR %s", filename);
+	sprintf(serv_cmd, "RETR %s", filename);
 	printf("File: %s\n", filename);
 
 	/* CSCD58 addition - Compression */
-	/* Make temporary <filename>.comp.enc-XXXXXX file for receiving the file */
-	char * encsuffix = ".enc";
-	int encsuffix_len = strlen(encsuffix);
-	char * compsuffix = ".comp";
-	int compsuffix_len = strlen(compsuffix);
-	int recvfilepathlen = strlen(filename) + compsuffix_len + encsuffix_len + 7 + 1;
-	char recvfilepath[recvfilepathlen];
-	bzero(recvfilepath, recvfilepathlen);
-	strncpy(&recvfilepath[0], filename, strlen(filename));
-	strncat(&recvfilepath[0], compsuffix, compsuffix_len + 1);
-	strncat(&recvfilepath[0], encsuffix, encsuffix_len + 1);
-	/* Generate a temp name for our compressed .comp file */
-	strncat(&recvfilepath[0], "-XXXXXX", 8);
-	int r = mkstemp(recvfilepath);
-	close(r);
-	unlink(recvfilepath);
-	sprintf(temp1, "%s", recvfilepath);
-	/* CSCD58 end of addition - Compression */
+	/* MTNRF: Make temporary name for receiving file
+	 * ( '<filename>.comp.enc-XXXXXX' ) */
+	char * c_out_fp_pure;
+	char * recv_fp;
+	/* MTNRF1: Get the "pure" name for the compressed version of the file,
+	 * i.e., the temp compression file name minus the 'mkstemp()' digits 
+	 * ( '<filename>.comp' ) */
+	if ( (c_out_fp_pure = compression_name(filename)) == NULL) {
+		fprintf(stderr, "ERROR: failed to receive file!\n");
+		return -1;
+	}
 
-	bzero(filename, (int)sizeof(filename));
+	/* MTNRF2: Take the "pure" compressed name and get a temp encryption name
+	 * for it ( '<filename>.comp.enc-XXXXXX' ) */
+	if ( (recv_fp = temp_encryption_name(c_out_fp_pure)) == NULL) {
+		fprintf(stderr, "ERROR: failed to receive file!\n");
+		return -1;
+	}
+	free(c_out_fp_pure);
+	/* CSCD58 end of addition - Compression */
 
 	FD_ZERO(&rdset);
 	FD_SET(controlfd, &rdset);
@@ -416,12 +416,12 @@ int do_get(int controlfd, int *datafds, char *input) {
     }
 
 	FILE *fp;
-	if((fp = fopen(temp1, "w")) == NULL){
+	if((fp = fopen(recv_fp, "w")) == NULL){
 		perror("file error");
 		return -1;
 	}
 
-	write(controlfd, str, strlen(str));
+	write(controlfd, serv_cmd, strlen(serv_cmd));
 
 	/* CSCD58 Addition - Encryption */
 	uint32_t key[4];
@@ -433,12 +433,16 @@ int do_get(int controlfd, int *datafds, char *input) {
 
     /* CSCD58 Additon - Parallelization */
 	while (1) {
-        if(control_finished == FALSE){FD_SET(controlfd, &rdset);}
+        if(control_finished == FALSE){
+			FD_SET(controlfd, &rdset);
+		}
         //if(data_finished == FALSE){FD_SET(datafds, &rdset);}
-        if(data_finished == FALSE){FD_SETS(datafds, &rdset, NDATAFD, i);}
+        if(data_finished == FALSE){
+			FD_SETS(datafds, &rdset, NDATAFD, i);
+		}
         select(maxfdp1, &rdset, NULL, NULL, NULL);
 
-        if(FD_ISSET(controlfd, &rdset)){
+        if(FD_ISSET(controlfd, &rdset)) {
             bzero(recvline, (int)sizeof(recvline));
             read(controlfd, recvline, MAXLINE);
             printf("Server Control Response: %s\n", recvline);
@@ -496,64 +500,60 @@ int do_get(int controlfd, int *datafds, char *input) {
         }
 
     }
+	fclose(fp);
     /* End CSCD58 Additoon - Parallelization */
 
-	bzero(filename, (int)sizeof(filename));
-	bzero(recvline, (int)sizeof(recvline));
-	bzero(str, (int)sizeof(str));
-	fclose(fp);
-
+	/* If there was an error receiving the file, delete the temp file it was to
+	 * be written to */
 	if (err) {
-	    if (0 != remove(temp1)) {
+		if (0 != remove(recv_fp)) {
 			fprintf(stderr, "WARNING: could not remove temporary file following an error!\n");
 		}
 		return -1;
 	}
 
 	/* CSCD58 addition - Compression */
-	/* Create 'cat <filename>.comp.enc-XXXXXX' */
-	int unencinputfilelen = strlen(temp1) + 5;
-	char unencinputfilepath[unencinputfilelen];
-	bzero(unencinputfilepath, unencinputfilelen);
-	sprintf(unencinputfilepath, "cat %s", temp1);
-	/* temp1 = <filename>.comp.enc-XXXXXX */
-	int unencoutputfilepathlen = strlen(temp1) - 7 - encsuffix_len + 7 + 1;
-	char unencoutputfilepath[unencoutputfilepathlen];
-	bzero(unencoutputfilepath, unencoutputfilepathlen);
-	/* - 7 to get rid of the trailing temp digits ( <filename>.comp.enc ) */
-	/* - encsuffix_len to get rid of the trailing .enc ( <filename>.comp ) */
-	strncpy(unencoutputfilepath, temp1, strlen(temp1) - 7 - encsuffix_len);
-	/* Add a temp field our compressed .comp file ( <filename>.comp-XXXXXX ) */
-	strncat(&unencoutputfilepath[0], "-XXXXXX", 8);
-	r = mkstemp(unencoutputfilepath);
-	close(r);
-	unlink(unencoutputfilepath);
+	char * dec_out_fp;
+	/* Make temporary name for compressed but decrypted file
+	 * ( '<filename>.comp-XXXXXX' ) */
+	if ( (dec_out_fp = temp_compression_name(filename)) == NULL) {
+		fprintf(stderr, "ERROR: could not decrypt file!\n");
+		return -1;
+	}
 
-	dec_file(unencinputfilepath, unencoutputfilepath, key);
+	/* Decrypt content of file at 'recv_fp' writing output to file at
+	 * 'dec_out_fp' */
+	if (0 != dec_file(recv_fp, dec_out_fp, key)) {
+		fprintf(stderr, "ERROR: could not decrypt file!\n");
+		return -1;
+	}
 
 	if (KEEP_TEMP_ENC_FILES != 1) {
-		if (0 != remove(temp1)) {
+		if (0 != remove(recv_fp)) {
 			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
 		}
 	}
 
-	/* unencoutputfilepath =  ( <filename>.comp-XXXXXX ) */
-	int uncompoutputfilepathlen = strlen(unencoutputfilepath) + 1;
-	char uncompoutputfilepath[uncompoutputfilepathlen];
-	bzero(uncompoutputfilepath, uncompoutputfilepathlen);
-	/* - 7 to get rid of the trailing temp digits ( <filename>.comp ) */
-	/* - compsuffix_len to get rid of the trailing .comp ( <filename> )*/
-	strncpy(uncompoutputfilepath, unencoutputfilepath, strlen(unencoutputfilepath) - 7 - compsuffix_len);
-
-	if (0 != uncomp_file(unencoutputfilepath, uncompoutputfilepath)) {
+	/* Uncompress content of file at 'dec_out_fp' writing output to file at
+	 * 'filename' */
+	if (0 != uncomp_file(dec_out_fp, filename)) {
 		fprintf(stderr, "ERROR: could not uncompress file!\n");
 	}
+
 	if (KEEP_TEMP_COMP_FILES != 1) {
-		if (0 != remove(unencoutputfilepath)) {
+		if (0 != remove(dec_out_fp)) {
 			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
 		}
 	}
+
+	/* Free dynamically allocated memory */
+	free(dec_out_fp);
+	free(recv_fp);
 	/* CSCD58 end of addition - Compression */
+
+	bzero(filename, (int)sizeof(filename));
+	bzero(recvline, (int)sizeof(recvline));
+	bzero(serv_cmd, (int)sizeof(serv_cmd));
 
 	return 1;
 }
@@ -561,7 +561,7 @@ int do_get(int controlfd, int *datafds, char *input) {
 
 // TODO: break up this function, add brief documentation
 int do_put(int controlfd, int datafd, char *input){
-	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], sendline[MAXLINE+1], *temp, temp1[1024];
+	char filename[256], str[MAXLINE+1], recvline[MAXLINE+1], sendline[MAXLINE+1], serv_cmd[MAXLINE+1], *temp;
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(str, (int)sizeof(str));
@@ -580,39 +580,37 @@ int do_put(int controlfd, int datafd, char *input){
 		return -1;
 	}
 
-	sprintf(str, "STOR %s", filename);
+	sprintf(serv_cmd, "STOR %s", filename);
 
 	/* CSCD58 addition - Compression */
-	char * encsuffix = ".enc";
-	int encsuffix_len = strlen(encsuffix);
-	char * compsuffix = ".comp";
-	int compsuffix_len = strlen(compsuffix);
-	int compfilepathlen = strlen(filename) + compsuffix_len + encsuffix_len + 7 + 1;
-	char compfilepath[compfilepathlen];
-	bzero(compfilepath, compfilepathlen);
-	strncpy(&compfilepath[0], filename, strlen(filename));
-	strncat(&compfilepath[0], compsuffix, compsuffix_len + 1);
-	strncat(&compfilepath[0], encsuffix, encsuffix_len + 1);
-	/* Generate a temp name for our compressed .comp file */
-	strncat(&compfilepath[0], "-XXXXXX", 8);
-	int r = mkstemp(compfilepath);
-	close(r);
-	unlink(compfilepath);
+	/* CF: Compress file */
+	char * c_out_fp;
 
-	if (0 != comp_file(filename, compfilepath)) {
+	/* CF1: Get temp name for compressed version of the file */
+	if ( (c_out_fp = temp_compression_name(filename)) == NULL) {
 		fprintf(stderr, "ERROR: could not compress file!\n");
 		char send[1024];
-		sprintf(str, "SKIP");
-		write(controlfd, str, strlen(str));
+		sprintf(serv_cmd, "SKIP");
+		write(controlfd, serv_cmd, strlen(serv_cmd));
 		bzero(send, (int)sizeof(send));
 		read(controlfd, send, 1000);
 		printf("Server Control Response: %s\n", send);
 		return -1;
 	}
-	sprintf(temp1, "cat %s", compfilepath);
-	/* CSCD58 end of addition - Compression */
 
-	bzero(filename, (int)sizeof(filename));
+	/* CF2: Compress content of file at 'filename' writing output to file at
+	 * 'c_out_fp' */
+	if (0 != comp_file(filename, c_out_fp)) {
+		fprintf(stderr, "ERROR: could not compress file!\n");
+		char send[1024];
+		sprintf(serv_cmd, "SKIP");
+		write(controlfd, serv_cmd, strlen(serv_cmd));
+		bzero(send, (int)sizeof(send));
+		read(controlfd, send, 1000);
+		printf("Server Control Response: %s\n", send);
+		return -1;
+	}
+	/* CSCD58 end of addition - Compression */
 
 	FD_ZERO(&wrset);
 	FD_ZERO(&rdset);
@@ -626,32 +624,57 @@ int do_put(int controlfd, int datafd, char *input){
 	}
 
 	FILE *in;
-	// TODO: what happens here?
-	extern FILE *popen();
 
-	write(controlfd, str, strlen(str));
+	write(controlfd, serv_cmd, strlen(serv_cmd));
 
 	/* CSCD58 Addition - Encryption + Compression */
 	uint32_t key[4];
 	do_dh(controlfd, datafd, key);
 
-	int encfilepathlen = strlen(compfilepath) + encsuffix_len + 7 + 1;
-	char encfilepath[encfilepathlen];
-	bzero(encfilepath, encfilepathlen);
-	strncpy(&encfilepath[0], compfilepath, strlen(compfilepath) - 7);
-	strncat(&encfilepath[0], encsuffix, encsuffix_len + 1);
-	/* Generate a temp name for our encrypted .enc file */
-	strncat(&encfilepath[0], "-XXXXXX", 8);
-	r = mkstemp(encfilepath);
-	close(r);
-	unlink(encfilepath);
+	/* EF: Encrypt file */
+	char * c_out_fp_pure;
+	char * e_out_fp;
 
-	enc_file(temp1, encfilepath, key);
+	/* EF3: Get the temp name for the compressed, encrypted version of the file */
+	/* EF3a: Get the "pure" name for the compressed version of the file, i.e.,
+	 * the temp compression file name minus the 'mkstemp()' digits */
+	if ( (c_out_fp_pure = compression_name(filename)) == NULL) {
+		fprintf(stderr, "ERROR: could not encrypt file!\n");
+		char send[1024];
+		sprintf(serv_cmd, "SKIP");
+		write(controlfd, serv_cmd, strlen(serv_cmd));
+		bzero(send, (int)sizeof(send));
+		read(controlfd, send, 1000);
+		printf("Server Control Response: %s\n", send);
+		return -1;
+	}
+	/* EF3b: Get temp name for encrypted version of the compressed file */
+	if ( (e_out_fp = temp_encryption_name(c_out_fp_pure)) == NULL) {
+		fprintf(stderr, "ERROR: could not encrypt file!\n");
+		char send[1024];
+		sprintf(serv_cmd, "SKIP");
+		write(controlfd, serv_cmd, strlen(serv_cmd));
+		bzero(send, (int)sizeof(send));
+		read(controlfd, send, 1000);
+		printf("Server Control Response: %s\n", send);
+		return -1;
+	}
 
-	sprintf(temp1, "cat %s", encfilepath);
+	/* EF4: Encrypt content of file at 'filename' writing output to file at
+	 * 'e_out_fp' */
+	if (0 != enc_file(c_out_fp, e_out_fp, key)) {
+		fprintf(stderr, "ERROR: could not encrypt file!\n");
+		char send[1024];
+		sprintf(serv_cmd, "SKIP");
+		write(controlfd, serv_cmd, strlen(serv_cmd));
+		bzero(send, (int)sizeof(send));
+		read(controlfd, send, 1000);
+		printf("Server Control Response: %s\n", send);
+		return -1;
+	}
 	/* End CSCD58 Addition - Encryption + Compression */
 
-	if (!(in = popen(temp1, "r"))) {
+	if ((in = fopen(e_out_fp, "rb")) == NULL) {
 		printf("Cannot Run Command\nExiting...\n");
 		return -1;
 	}
@@ -695,15 +718,23 @@ int do_put(int controlfd, int datafd, char *input){
 	}
 	/* CSCD58 addition - Compression */
 	if (KEEP_TEMP_COMP_FILES != 1) {
-		if (0 != remove(compfilepath)) {
+		if (0 != remove(c_out_fp)) {
 			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
 		}
 	}
 	if (KEEP_TEMP_ENC_FILES != 1) {
-		if (0 != remove(encfilepath)) {
+		if (0 != remove(e_out_fp)) {
 			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
 		}
 	}
+
+	/* Close open files */
+	fclose(in);
+
+	/* Free dynamically allocated memory */
+	free(c_out_fp);
+	free(c_out_fp_pure);
+	free(e_out_fp);
 	/* CSCD58 end of addition - Compression */
 	return 1;
 }

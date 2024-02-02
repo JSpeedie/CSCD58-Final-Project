@@ -152,9 +152,9 @@ int dec_file(char in_name[], char out_name[], uint32_t key[4]) {
     
     initialize_aes_sbox(sbox, sboxinv);
 
-    if (!(in = fopen(in_name, "rb"))) {
-        return -1;
-    }
+	if ((in = fopen(in_name, "rb")) == NULL) {
+		return -1;
+	}
     
     if((fp = fopen(out_name, "w")) == NULL){
         return -1;
