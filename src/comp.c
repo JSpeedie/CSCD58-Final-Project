@@ -158,47 +158,6 @@ char * temp_compression_name(char * filename) {
 }
 
 
-/** Take a file name and returns a malloc'd string containing a temp file name
- * which has the encryption extension appended. The returned string must
- * be freed by the caller of this function.
- *
- * \param '*filename' the name of the file we wish to generate a temporary
- *     encryption name for.
- * \return a pointer to the temp name string on success, and NULL on failure.
- */
-char * temp_encryption_name(char * filename) {
-	/* {{{ */
-	// TODO: get this working with the ".enc" definition in the header
-	char * e_ext = ".enc";
-	/* char * e_ext = ENC_EXT; */
-	int e_ext_len = strlen(e_ext);
-
-	/* GTNE: Generate a temp name for our encrypted file */
-	/* GTNE1: Calculate how much space we need for the file name for the
-	 * encrypted file's file name and create a zero'd array for it. + 7 for
-	 * 'mkstemp()' "-XXXXXX" */
-	char *e_out_fp = calloc(strlen(filename) + e_ext_len + 7 + 1, sizeof(char));
-
-	/* GTNE2: Fill the string with the filename + the encryption extension +
-	 * the suffix characters 'mkstemp()' requires and will modify */
-	// TODO: can this construction not be done faster or more efficiently?
-	strncpy(&e_out_fp[0], filename, strlen(filename));
-	strncat(&e_out_fp[0], e_ext, e_ext_len + 1);
-	strncat(&e_out_fp[0], "-XXXXXX", 8);
-
-	/* GTNE3: Generate a temp name for our encrypted file with 'mkstemp()' */
-	int r;
-	if ( (r = mkstemp(e_out_fp)) == -1) return NULL;
-	/* ... close the open FD and deleting the temp file created as we intend to
-	 * use its name later */
-	close(r);
-	unlink(e_out_fp);
-
-	return e_out_fp;
-	/* }}} */
-}
-
-
 /** Takes an input file path, compresses the file at that location, writing
  * the compressed result to the file at the output file path.
  *
@@ -211,9 +170,12 @@ int comp_file(char * inputfilepath, char * outputfilepath) {
 	struct stat s;
 	stat(inputfilepath, &s);
 
-	/* If the size of the file is too large to be done in one pass */
+	/* If the size of the file is too large for all its data to be loaded into
+	 * memory and compressed in one call to the function */
 	if (s.st_size > MAX_CHUNK) {
-		fprintf(stderr, "WARNING: File is bigger than max chunk size and cannot be done in one pass. It must be compressed incrementally.\n");
+		fprintf(stderr, "WARNING: File size is bigger than max chunk size " \
+			"(%ld > %d bytes) and cannot be compressed all at once and must " \
+			"instead be compressed incrementally.\n", s.st_size, MAX_CHUNK);
 	}
 
 	FILE *in_file = fopen(inputfilepath, "rb");

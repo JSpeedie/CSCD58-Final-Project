@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -7,6 +8,47 @@
 #include "enc.h"
 
 #define  READSIZE 1024
+
+
+/** Take a file name and returns a malloc'd string containing a temp file name
+ * which has the encryption extension appended. The returned string must
+ * be freed by the caller of this function.
+ *
+ * \param '*filename' the name of the file we wish to generate a temporary
+ *     encryption name for.
+ * \return a pointer to the temp name string on success, and NULL on failure.
+ */
+char * temp_encryption_name(char * filename) {
+	/* {{{ */
+	// TODO: get this working with the ".enc" definition in the header
+	char * e_ext = ".enc";
+	/* char * e_ext = ENC_EXT; */
+	int e_ext_len = strlen(e_ext);
+
+	/* GTNE: Generate a temp name for our encrypted file */
+	/* GTNE1: Calculate how much space we need for the file name for the
+	 * encrypted file's file name and create a zero'd array for it. + 7 for
+	 * 'mkstemp()' "-XXXXXX" */
+	char *e_out_fp = calloc(strlen(filename) + e_ext_len + 7 + 1, sizeof(char));
+
+	/* GTNE2: Fill the string with the filename + the encryption extension +
+	 * the suffix characters 'mkstemp()' requires and will modify */
+	// TODO: can this construction not be done faster or more efficiently?
+	strncpy(&e_out_fp[0], filename, strlen(filename));
+	strncat(&e_out_fp[0], e_ext, e_ext_len + 1);
+	strncat(&e_out_fp[0], "-XXXXXX", 8);
+
+	/* GTNE3: Generate a temp name for our encrypted file with 'mkstemp()' */
+	int r;
+	if ( (r = mkstemp(e_out_fp)) == -1) return NULL;
+	/* ... close the open FD and deleting the temp file created as we intend to
+	 * use its name later */
+	close(r);
+	unlink(e_out_fp);
+
+	return e_out_fp;
+	/* }}} */
+}
 
 
 // TODO: what's going on here?
@@ -56,8 +98,6 @@ void to_row_order(uint8_t text[16]) {
     }
 }
 
-// TODO: is there any way we can avoid doing some jank "in_name is really 'cat
-// [filepath]'" stuff here? It seems misleading and also clunky
 int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
     FILE *in;
     FILE *fp;
@@ -119,7 +159,7 @@ int enc_file(char in_name[], char out_name[], uint32_t key[4]) {
     }
     
     if (!padded) {
-    	for (int j = 0; j < 16; j++) {
+        for (int j = 0; j < 16; j++) {
             text[j] = 16;
         }
         
@@ -193,7 +233,7 @@ int dec_file(char in_name[], char out_name[], uint32_t key[4]) {
     }
     
     if (!padrm) {
-    	int padnum = writebuf[i - 1];
+        int padnum = writebuf[i - 1];
         fwrite(writebuf, 1, read_len - padnum, fp);
     }
     

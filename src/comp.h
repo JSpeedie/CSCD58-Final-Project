@@ -17,8 +17,6 @@ char * compression_name(char * filename);
 
 char * temp_compression_name(char * filename);
 
-char * temp_encryption_name(char * filename);
-
 int comp_file(char * inputfilepath, char * outputfilepath);
 
 int uncomp_file(char * inputfilepath, char * outputfilepath);

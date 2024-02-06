@@ -214,22 +214,27 @@ int get_filename(char *input, char *fileptr){
 
 
 /* CSCD58 Addition - Encryption */
-int do_dh(int controlfd, int datafd, uint32_t key[4]) {
+int do_dh_client(int controlfd, int datafd, uint32_t key[4]) {
 	uint64_t dh_p = 1;
 	dh_p = (dh_p << 32) - 99;
 	uint64_t dh_g = 5;
 	uint64_t dh_a, dh_ka, dh_kb, dh_k;
-	fd_set fds;
-	FD_ZERO(&fds);
+	// TODO: are readfds ever used properly in this function? we call select on
+	// them, but no fd other than datafd is ever accessed and I don't think we
+	// do anything with the fd_set readfds (i.e. we never check if any of the
+	// fds in the set are set and never do anything particular to a given fd in
+	// the set)
+	fd_set readfds;
+	FD_ZERO(&readfds);
 
 	for (int i = 0; i < 4; i++) {
 		dh_a = (rand() % (dh_p - 2)) + 2;
 		dh_ka = sq_mp(dh_g, dh_a, dh_p);
-		FD_SET(datafd, &fds);
+		FD_SET(datafd, &readfds);
 
 		write(datafd, (char *)&dh_ka, sizeof(dh_ka));
 
-		select(datafd + 1, &fds, NULL, NULL, NULL);
+		select(datafd + 1, &readfds, NULL, NULL, NULL);
 		read(datafd, (char *)&dh_kb, sizeof(dh_kb));
 
 		dh_k = sq_mp(dh_kb, dh_a, dh_p);
@@ -347,18 +352,25 @@ int do_ls(int controlfd, int datafd, char *input){
 // TODO: break up this function, add brief documentation
 int do_get(int controlfd, int *datafds, char *input) {
 	char filename[256], serv_cmd[MAXLINE+1], recvline[MAXLINE+1], *temp;
+	// TODO:do we have to bzero the whole string, for any of these strings? Can
+	// we not just make the 0th element = \0?
 	bzero(filename, (int)sizeof(filename));
 	bzero(recvline, (int)sizeof(recvline));
 	bzero(serv_cmd, (int)sizeof(serv_cmd));
+	// TODO: this variable needs a better name
 	int n = 0;
-	uint32_t p[NDATAFD];
-	uint16_t rem[NDATAFD];
+	/* pos[i] contains the position in the file where the parallelized
+	 * chunk begins and appears as a uint32_t at the 1st byte in the header */
+	uint32_t pos[NDATAFD];
+	/* nmem[i] contains the number of non-header bytes in the parallelized
+	 * chunk and appears as a uint16_t at the 5th byte in the header */
+	uint16_t nmem[NDATAFD];
 	uint8_t closed[NDATAFD];
 
-	fd_set rdset;
-	int maxfdp1, data_finished = FALSE, control_finished = FALSE;
+	fd_set readfdset;
+	int maxfd, data_finished = FALSE, control_finished = FALSE;
 
-	if(get_filename(input, filename) < 0){
+	if (get_filename(input, filename) < 0) {
 		printf("No filename Detected...\n");
 		char send[1024];
 		sprintf(send, "SKIP");
@@ -369,80 +381,87 @@ int do_get(int controlfd, int *datafds, char *input) {
 		return -1;
 	}
 
+	/* Construct FTP service command and send it over the control connection */
 	sprintf(serv_cmd, "RETR %s", filename);
+	// TODO: is this printf necessary?
 	printf("File: %s\n", filename);
+	write(controlfd, serv_cmd, strlen(serv_cmd));
 
 	/* CSCD58 addition - Compression */
-	/* MTNRF: Make temporary name for receiving file
+	/* Make temporary name for receiving file
 	 * ( '<filename>.comp.enc-XXXXXX' ) */
-	char * c_out_fp_pure;
 	char * recv_fp;
-	/* MTNRF1: Get the "pure" name for the compressed version of the file,
-	 * i.e., the temp compression file name minus the 'mkstemp()' digits 
-	 * ( '<filename>.comp' ) */
-	if ( (c_out_fp_pure = compression_name(filename)) == NULL) {
+	if ( (recv_fp = temp_recv_name(filename)) == NULL) {
 		fprintf(stderr, "ERROR: failed to receive file!\n");
 		return -1;
 	}
-
-	/* MTNRF2: Take the "pure" compressed name and get a temp encryption name
-	 * for it ( '<filename>.comp.enc-XXXXXX' ) */
-	if ( (recv_fp = temp_encryption_name(c_out_fp_pure)) == NULL) {
-		fprintf(stderr, "ERROR: failed to receive file!\n");
-		return -1;
-	}
-	free(c_out_fp_pure);
 	/* CSCD58 end of addition - Compression */
 
-	FD_ZERO(&rdset);
-	FD_SET(controlfd, &rdset);
-	// FD_SET(datafd, &rdset);
+	FD_ZERO(&readfdset);
+	FD_SET(controlfd, &readfdset);
+	// FD_SET(datafd, &readfdset);
 
     /* CSCD58 addition - Parallelization */
-    int i = 0;
-    maxfdp1 = datafds[0];
-    for (i = 0; i < NDATAFD; i++) {
-        FD_SET(datafds[i], &rdset);
-        p[i] = 0;
-        rem[i] = 0;
-        closed[i] = 0;
-        if (datafds[i] > maxfdp1)
-            maxfdp1 = datafds[i] + 1;
-    }
+	// TODO: what's going on here? Best guess: it's initializing the different
+	// fds used in parallelization and then with maxfd, it's determining the
+	// highest fd number because it is a required argument for select()
+	int i = 0;
+	maxfd = datafds[0];
+
+	for (i = 0; i < NDATAFD; i++) {
+		FD_SET(datafds[i], &readfdset);
+		pos[i] = 0;
+		nmem[i] = 0;
+		closed[i] = 0;
+		if (datafds[i] > maxfd) {
+			maxfd = datafds[i] + 1;
+		}
+	}
+
+	if (controlfd > maxfd) {
+		maxfd = controlfd + 1;
+	}
     /* End CSCD58 addition - Parallelization */
 
-	if(controlfd > maxfdp1){
-        maxfdp1 = controlfd + 1;
-    }
-
 	FILE *fp;
-	if((fp = fopen(recv_fp, "w")) == NULL){
+	if ((fp = fopen(recv_fp, "w")) == NULL) {
 		perror("file error");
 		return -1;
 	}
 
-	write(controlfd, serv_cmd, strlen(serv_cmd));
-
 	/* CSCD58 Addition - Encryption */
 	uint32_t key[4];
-	do_dh(controlfd, datafds[0], key);
+	do_dh_client(controlfd, datafds[0], key);
 	/* End CSCD58 Addition - Encryption */
 
-	int j = 0;
+	int finished_data_fds = 0;
+	// TODO: what the heck does 'err' do?
 	int err = 0;
+	/* the parallelized chunk header is one uint32_t (4 bytes) followed by one
+	 * uint16_t (2 bytes) */
+	int header_size = 6;
 
     /* CSCD58 Additon - Parallelization */
+	// TODO: this while loop is the biggest section in this function and that
+	// perhaps indicates that it is a good candidate for being put in a helper
+	// function
 	while (1) {
+		// TODO: select() man page says if you're using select in a loop,
+		// you gotta do some reinitializing. Make sure that takes place here
+		// before the select() call
+		// TODO: both control_finished and data_finished are initialized to
+		// FALSE and have no chance of being changed prior to these checks
         if(control_finished == FALSE){
-			FD_SET(controlfd, &rdset);
+			FD_SET(controlfd, &readfdset);
 		}
-        //if(data_finished == FALSE){FD_SET(datafds, &rdset);}
         if(data_finished == FALSE){
-			FD_SETS(datafds, &rdset, NDATAFD, i);
+			FD_SETS(datafds, &readfdset, NDATAFD, i);
 		}
-        select(maxfdp1, &rdset, NULL, NULL, NULL);
+		// TODO: this should check for error? (i.e. when it returns -1)
+        select(maxfd, &readfdset, NULL, NULL, NULL);
 
-        if(FD_ISSET(controlfd, &rdset)) {
+		/* If there is anything to read on the control connection */
+        if (FD_ISSET(controlfd, &readfdset)) {
             bzero(recvline, (int)sizeof(recvline));
             read(controlfd, recvline, MAXLINE);
             printf("Server Control Response: %s\n", recvline);
@@ -454,54 +473,85 @@ int do_get(int controlfd, int *datafds, char *input) {
             }
             control_finished = TRUE;
             bzero(recvline, (int)sizeof(recvline));
-            FD_CLR(controlfd, &rdset);
+            FD_CLR(controlfd, &readfdset);
         }
 
-        for (i = 0; i< NDATAFD; i++) {
-            if(FD_ISSET(datafds[i], &rdset)){
-                bzero(recvline, (int)sizeof(recvline));
+		/* If there is anything to read on any of the other readfds */
+		for (i = 0; i < NDATAFD; i++) {
+			if (FD_ISSET(datafds[i], &readfdset)) {
+				bzero(recvline, (int)sizeof(recvline));
 
-                if((n = recv(datafds[i], recvline, MAXLINE, MSG_PEEK)) > 0) {
-                    if (n < 6) {
-                        continue;
-                    } else {
-                        if (rem[i] > 0 && rem[i] < n) {
-                            n = read(datafds[i], recvline, rem[i]);
-                        } else {
-                            n = read(datafds[i], recvline, n);
-                        }
-                    }
+				/* Peak at the data in the given FD without removing it from
+				 * the queue, saving the length of the series of bytes possible
+				 * to read in 'n' */
+				// TODO: error handling for recv()
+				if ((n = recv(datafds[i], recvline, MAXLINE, MSG_PEEK)) > 0) {
+					/* If we have received less than the header (position + nmem) */
+					if (n < header_size) {
+						continue;
+					} else {
+						if (nmem[i] > 0 && nmem[i] < n) {
+							n = read(datafds[i], recvline, nmem[i]);
+						} else {
+							n = read(datafds[i], recvline, n);
+						}
+					}
 
-                    int off = 0;
-                    if (rem[i] == 0) {
-                        memcpy(p + i, recvline, 4);
-                        memcpy(rem + i, recvline + 4, 2);
-                        off += 6;
-                    }
-                    fseek(fp, p[i], SEEK_SET);
-                    fwrite(recvline + off, 1, n - off, fp);
-                    rem[i] = rem[i] - (n - off);
-                    p[i] = p[i] + (n - off);
-                    //printf("%s", recvline);
-                    bzero(recvline, (int)sizeof(recvline));
+					int off = 0;
+					if (nmem[i] == 0) {
+						/* For handling endianness */
+						uint16_t nmem_read_n;
+						uint32_t cur_pos_n;
+						/* Read the first 4 bytes into pos[i] as the position */
+						memcpy(&cur_pos_n, recvline, sizeof(uint32_t));
+						pos[i] = ntohl(cur_pos_n);
+						/* ... then read the 2 bytes that come after to nmem[i] */
+						memcpy(&nmem_read_n, &recvline[sizeof(uint32_t)], sizeof(uint16_t));
+						nmem[i] = ntohs(nmem_read_n);
+						/* Adjust the offset for 'recvline' past the header
+						 * info */
+						off += header_size;
+					}
+					// TODO: possible reason Jacky said the program doesn't
+					// work with files much bigger than 10MBs is that nmem and
+					// pos are unnecessarily small (uint16_t and uint32_t). By
+					// my math, the size limitation of pos should affect files
+					// at around 4 GBs. Anyway, fseek() takes a long (uint64_t
+					// on my system) so it should be changed from uint32_t to
+					// long when I wanna fiddle with this.
+					fseek(fp, pos[i], SEEK_SET);
+					/* Write all the non-header bytes that were received */
+					// TODO: check for error
+					fwrite(&recvline[off], 1, n - off, fp);
+					nmem[i] -= (n - off);
+					pos[i] = pos[i] + (n - off);
+				/* if recv() read 0 bytes then this data fd must be finished transmitting data */
+				// TODO: this 'else' is really checking only for 'n' == 0 from
+				// the previous recv call, but obviously that ignores the fact
+				// that the recv() call could fail and return a value < 0
                 } else {
                     if (!closed[i]) {
-                        j++;
+                        finished_data_fds++;
                         closed[i] = 1;
                     }
                 }
-                if (j >= NDATAFD)
-                    data_finished = TRUE;
-                FD_CLR(datafds[i], &rdset);
+				if (finished_data_fds >= NDATAFD) {
+					data_finished = TRUE;
+				}
+                FD_CLR(datafds[i], &readfdset);
             }
         }
-        if((control_finished == TRUE) && (data_finished == TRUE)){
+		// TODO: control_finished is never changed in this loop so checking it
+		// for being TRUE here is unnecessary even though I see what the
+		// original author was going for (we do need both connections to be
+		// finished before continuing
+        if ((control_finished == TRUE) && (data_finished == TRUE)) {
             break;
         }
 
     }
 	fclose(fp);
-    /* End CSCD58 Additoon - Parallelization */
+    /* End CSCD58 Addition - Parallelization */
 
 	/* If there was an error receiving the file, delete the temp file it was to
 	 * be written to */
@@ -512,48 +562,18 @@ int do_get(int controlfd, int *datafds, char *input) {
 		return -1;
 	}
 
-	/* CSCD58 addition - Compression */
-	char * dec_out_fp;
-	/* Make temporary name for compressed but decrypted file
-	 * ( '<filename>.comp-XXXXXX' ) */
-	if ( (dec_out_fp = temp_compression_name(filename)) == NULL) {
-		fprintf(stderr, "ERROR: could not decrypt file!\n");
-		return -1;
-	}
-
-	/* Decrypt content of file at 'recv_fp' writing output to file at
-	 * 'dec_out_fp' */
-	if (0 != dec_file(recv_fp, dec_out_fp, key)) {
-		fprintf(stderr, "ERROR: could not decrypt file!\n");
-		return -1;
-	}
-
-	if (KEEP_TEMP_ENC_FILES != 1) {
-		if (0 != remove(recv_fp)) {
-			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
-		}
-	}
-
-	/* Uncompress content of file at 'dec_out_fp' writing output to file at
+	/* CSCD58 addition - Compression and Encryption */
+	/* Decrypt (using key 'key') and decompress received file stored at the
+	 * filepath 'recv_fp', outputting the result to the file at path
 	 * 'filename' */
-	if (0 != uncomp_file(dec_out_fp, filename)) {
-		fprintf(stderr, "ERROR: could not uncompress file!\n");
-	}
-
-	if (KEEP_TEMP_COMP_FILES != 1) {
-		if (0 != remove(dec_out_fp)) {
-			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
-		}
+	if (process_received_file(filename, recv_fp, key) != 0) {
+		fprintf(stderr, "ERROR: failed to process received file!\n");
+		return -1;
 	}
 
 	/* Free dynamically allocated memory */
-	free(dec_out_fp);
 	free(recv_fp);
 	/* CSCD58 end of addition - Compression */
-
-	bzero(filename, (int)sizeof(filename));
-	bzero(recvline, (int)sizeof(recvline));
-	bzero(serv_cmd, (int)sizeof(serv_cmd));
 
 	return 1;
 }
@@ -582,36 +602,6 @@ int do_put(int controlfd, int datafd, char *input){
 
 	sprintf(serv_cmd, "STOR %s", filename);
 
-	/* CSCD58 addition - Compression */
-	/* CF: Compress file */
-	char * c_out_fp;
-
-	/* CF1: Get temp name for compressed version of the file */
-	if ( (c_out_fp = temp_compression_name(filename)) == NULL) {
-		fprintf(stderr, "ERROR: could not compress file!\n");
-		char send[1024];
-		sprintf(serv_cmd, "SKIP");
-		write(controlfd, serv_cmd, strlen(serv_cmd));
-		bzero(send, (int)sizeof(send));
-		read(controlfd, send, 1000);
-		printf("Server Control Response: %s\n", send);
-		return -1;
-	}
-
-	/* CF2: Compress content of file at 'filename' writing output to file at
-	 * 'c_out_fp' */
-	if (0 != comp_file(filename, c_out_fp)) {
-		fprintf(stderr, "ERROR: could not compress file!\n");
-		char send[1024];
-		sprintf(serv_cmd, "SKIP");
-		write(controlfd, serv_cmd, strlen(serv_cmd));
-		bzero(send, (int)sizeof(send));
-		read(controlfd, send, 1000);
-		printf("Server Control Response: %s\n", send);
-		return -1;
-	}
-	/* CSCD58 end of addition - Compression */
-
 	FD_ZERO(&wrset);
 	FD_ZERO(&rdset);
 	FD_SET(controlfd, &rdset);
@@ -629,17 +619,17 @@ int do_put(int controlfd, int datafd, char *input){
 
 	/* CSCD58 Addition - Encryption + Compression */
 	uint32_t key[4];
-	do_dh(controlfd, datafd, key);
+	do_dh_client(controlfd, datafd, key);
+	/* CSCD58 Addition - Encryption */
 
-	/* EF: Encrypt file */
-	char * c_out_fp_pure;
-	char * e_out_fp;
+	/* CSCD58 addition - Compression + Encryption */
+	char * prepared_fp;
 
-	/* EF3: Get the temp name for the compressed, encrypted version of the file */
-	/* EF3a: Get the "pure" name for the compressed version of the file, i.e.,
-	 * the temp compression file name minus the 'mkstemp()' digits */
-	if ( (c_out_fp_pure = compression_name(filename)) == NULL) {
-		fprintf(stderr, "ERROR: could not encrypt file!\n");
+	/* Encrypt (using key 'key') and compress the file stored at the
+	 * filepath 'filename', outputting the result to the file at path
+	 * 'prepared_fp' */
+	if (0 != prepare_file(filename, key, &prepared_fp)) {
+		fprintf(stderr, "ERROR: could not prepare file!\n");
 		char send[1024];
 		sprintf(serv_cmd, "SKIP");
 		write(controlfd, serv_cmd, strlen(serv_cmd));
@@ -648,34 +638,10 @@ int do_put(int controlfd, int datafd, char *input){
 		printf("Server Control Response: %s\n", send);
 		return -1;
 	}
-	/* EF3b: Get temp name for encrypted version of the compressed file */
-	if ( (e_out_fp = temp_encryption_name(c_out_fp_pure)) == NULL) {
-		fprintf(stderr, "ERROR: could not encrypt file!\n");
-		char send[1024];
-		sprintf(serv_cmd, "SKIP");
-		write(controlfd, serv_cmd, strlen(serv_cmd));
-		bzero(send, (int)sizeof(send));
-		read(controlfd, send, 1000);
-		printf("Server Control Response: %s\n", send);
-		return -1;
-	}
+	/* End of CSCD58 addition - Compression + Encryption */
 
-	/* EF4: Encrypt content of file at 'filename' writing output to file at
-	 * 'e_out_fp' */
-	if (0 != enc_file(c_out_fp, e_out_fp, key)) {
-		fprintf(stderr, "ERROR: could not encrypt file!\n");
-		char send[1024];
-		sprintf(serv_cmd, "SKIP");
-		write(controlfd, serv_cmd, strlen(serv_cmd));
-		bzero(send, (int)sizeof(send));
-		read(controlfd, send, 1000);
-		printf("Server Control Response: %s\n", send);
-		return -1;
-	}
-	/* End CSCD58 Addition - Encryption + Compression */
-
-	if ((in = fopen(e_out_fp, "rb")) == NULL) {
-		printf("Cannot Run Command\nExiting...\n");
+	if ((in = fopen(prepared_fp, "rb")) == NULL) {
+		fprintf(stderr, "ERROR: could not read file that is to be sent!\n");
 		return -1;
 	}
 
@@ -717,25 +683,18 @@ int do_put(int controlfd, int datafd, char *input){
 		}
 	}
 	/* CSCD58 addition - Compression */
-	if (KEEP_TEMP_COMP_FILES != 1) {
-		if (0 != remove(c_out_fp)) {
-			fprintf(stderr, "WARNING: could not remove temporary compressed .comp file!\n");
-		}
-	}
 	if (KEEP_TEMP_ENC_FILES != 1) {
-		if (0 != remove(e_out_fp)) {
+		if (0 != remove(prepared_fp)) {
 			fprintf(stderr, "WARNING: could not remove temporary encrypted .enc file!\n");
 		}
 	}
 
 	/* Close open files */
 	fclose(in);
-
 	/* Free dynamically allocated memory */
-	free(c_out_fp);
-	free(c_out_fp_pure);
-	free(e_out_fp);
+	free(prepared_fp);
 	/* CSCD58 end of addition - Compression */
+
 	return 1;
 }
 
@@ -783,13 +742,13 @@ int setup_data_conn(int * listenfd, struct sockaddr_in * data_addr, \
 	data_addr->sin_port = htons(port);
 
 	/* Bind the data socket (apply configuration) */
-	if (bind( (*listenfd), (struct sockaddr *) data_addr, sizeof( (*data_addr) )) < 0) {
+	if ( bind( (*listenfd), (struct sockaddr *) data_addr, sizeof( (*data_addr) )) < 0) {
 		return -2;
 	}
 
 	/* Set the socket as passive (one that listens) with a backlog of
 	 * 'LISTENQ' */
-	if ( (listen( (*listenfd), LISTENQ)) < 0) {
+	if ( listen( (*listenfd), LISTENQ) < 0) {
 		return -3;
 	}
 
@@ -861,7 +820,7 @@ int main(int argc, char **argv) {
         /* CSCD58 Addition - Parallelization */
         int i = 0;
         for (i = 0; i < NDATAFD; i++) {
-            datafds[i] = accept(listenfd, (struct sockaddr*)NULL, NULL);
+            datafds[i] = accept(listenfd, (struct sockaddr *) NULL, NULL);
             //printf("%d-th data connection established\n", i);
         }
         /* End CSCD58 Addition - Parallelization */
