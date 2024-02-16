@@ -10,10 +10,14 @@ ENCRYPTDEP = enc.c aes.c
 PARDEP = ftputil.c
 
 make: ftpclient.c ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) | bin
-	$(CC) $(CFLAGS) $(LIBS) ftpclient.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpclient
+	$(CC) $(CFLAGS) $(DEBUG) $(LIBS) ftpclient.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpclient
 	mv ftpclient ../bin/ftpclient/
-	$(CC) $(CFLAGS) $(LIBS) ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpserver
+	$(CC) $(CFLAGS) $(DEBUG) $(LIBS) ftpserver.c $(COMPRESSDEP) $(ENCRYPTDEP) $(PARDEP) -o ftpserver
 	mv ftpserver ../bin/ftpserver/
+
+.PHONY: debug
+debug: DEBUG = -DDEBUG_LEVEL=1
+debug: make
 
 bin:
 	mkdir -p ../bin
