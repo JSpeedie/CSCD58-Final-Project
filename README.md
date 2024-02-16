@@ -255,6 +255,9 @@ following commands:
 cd basic-FTP-Client-Server/
 cd src/
 make
+# Replace the previous make command with the following one
+# for binaries that provide debugging output
+make debug
 ```
 This will compile both the `ftpclient` and `ftpserver` binaries placing them in
 `basic-FTP-Client-Server/bin/ftpclient/` and
